@@ -1,0 +1,6 @@
+functions-framework>=3.0
+google-cloud-speech
+google-cloud-firestore
+google-cloud-storage
+ffmpeg-python
+

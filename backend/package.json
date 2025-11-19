@@ -1,0 +1,26 @@
+{
+  "name": "bobpt-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "@google-cloud/firestore": "^7.0.0",
+    "@google-cloud/storage": "^7.0.0",
+    "@google-cloud/translate": "^9.3.0",
+    "@google-cloud/video-intelligence": "^6.2.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "openai": "^4.52.0",
+    "youtube-caption-extractor": "^1.9.1",
+    "youtube-dl-exec": "^3.0.26",
+    "youtube-transcript": "^1.2.1"
+  }
+}

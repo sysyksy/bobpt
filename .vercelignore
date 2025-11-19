@@ -1,0 +1,15 @@
+backend
+.env
+.env.local
+.env.production
+.git
+.gitignore
+docs
+ETC
+scripts
+check_project.py
+main.py
+requirements.txt
+.gcloudignore
+*.md
+node_modules/.cache

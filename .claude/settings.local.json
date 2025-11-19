@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(node server.js:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(nul)",
+      "Bash(find:*)",
+      "Bash(npm install:*)",
+      "Bash(npm start)",
+      "Bash(findstr:*)",
+      "Bash(wmic process where ProcessId=25088 delete)",
+      "Bash(wmic process where ProcessId=14888 delete)",
+      "Bash(npm run build:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ1c2VyXzE3NjMyMzk3MDE5ODUiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20iLCJpYXQiOjE3NjMyMzk3MDYsImV4cCI6MTc2Mzg0NDUwNn0.7ZqyylxFBDj7bQNS4ooVCsmZFSgE5fF7gRV3VdctLu0\")",
+      "Bash(dir:*)",
+      "Bash(yt-dlp:*)",
+      "Bash(pip install:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(npm run dev:*)",
+      "Bash(node backend/server.js:*)",
+      "Bash(xargs:*)",
+      "Bash(tasklist:*)",
+      "Bash(lsof:*)",
+      "Bash(source venv/Scripts/activate)",
+      "Bash(uvicorn:*)",
+      "Bash(python:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cat:*)",
+      "Bash(pkill -f \"uvicorn\\|python main.py\\|npm run dev\")",
+      "Bash(pkill:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

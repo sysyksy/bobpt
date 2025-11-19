@@ -1,0 +1,7 @@
+functions-framework==3.*
+google-cloud-storage
+google-cloud-firestore
+openai>=1.0.0
+yt-dlp>=2023.0.0
+# Translation Agent dependencies included in openai package
+
