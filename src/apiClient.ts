@@ -196,10 +196,17 @@ export const getProjectStatus = async (projectId: string) => {
   }
 };
 
-export const getUploadUrl = async (fileName: string) => {
+export const getUploadUrl = async (fileName: string, language: string = "ko-KR") => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/generate-upload-url?file_name=${fileName}`);
-    return response.data;
+    const response = await axios.post(`${API_BASE_URL}/projects/init`, {
+      fileName: fileName,
+      language: language
+    });
+    return {
+      projectId: response.data.projectId,
+      uploadUrl: response.data.uploadUrl,
+      gcsUri: response.data.gcsUri
+    };
   } catch (error) {
     console.error("업로드 URL 생성 실패:", error);
     throw error;

@@ -8,6 +8,12 @@ interface Project {
   created_at: string
 }
 
+interface TranscriptItem {
+  start: number
+  end: number
+  text: string
+}
+
 function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -18,7 +24,10 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [currentView, setCurrentView] = useState<'auth' | 'projects' | 'upload'>('auth')
+  const [currentView, setCurrentView] = useState<'auth' | 'projects' | 'upload' | 'editor'>('auth')
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [transcript, setTranscript] = useState<TranscriptItem[]>([])
+  const [loadingTranscript, setLoadingTranscript] = useState(false)
 
   useEffect(() => {
     // Check if already logged in
@@ -146,6 +155,30 @@ function App() {
     setCurrentView('auth')
     setProjects([])
     setMessage('')
+  }
+
+  const handleOpenProject = async (project: Project) => {
+    setSelectedProject(project)
+    setCurrentView('editor')
+    setLoadingTranscript(true)
+    setMessage(`프로젝트 "${project.fileName}" 로딩 중...`)
+
+    try {
+      const transcriptData = await getTranscript(project.projectId)
+
+      if (transcriptData.transcript && Array.isArray(transcriptData.transcript)) {
+        setTranscript(transcriptData.transcript)
+        setMessage(`✅ 자막 ${transcriptData.transcript.length}개 로드됨`)
+      } else {
+        setTranscript([])
+        setMessage(`⚠️ 아직 자막이 생성되지 않았습니다. 상태: ${project.status}`)
+      }
+    } catch (error: any) {
+      setMessage(`자막 로딩 실패: ${error.message}`)
+      setTranscript([])
+    } finally {
+      setLoadingTranscript(false)
+    }
   }
 
   return (
@@ -327,11 +360,22 @@ function App() {
               {projects.map((project) => (
                 <div
                   key={project.projectId}
+                  onClick={() => handleOpenProject(project)}
                   style={{
                     border: '1px solid #ddd',
                     borderRadius: '8px',
                     padding: '15px',
-                    backgroundColor: 'white'
+                    backgroundColor: 'white',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f0f8ff'
+                    e.currentTarget.style.borderColor = '#007bff'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white'
+                    e.currentTarget.style.borderColor = '#ddd'
                   }}
                 >
                   <h3 style={{ margin: '0 0 10px 0' }}>{project.fileName}</h3>
@@ -430,6 +474,139 @@ function App() {
             >
               취소
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Editor View */}
+      {isLoggedIn && currentView === 'editor' && selectedProject && (
+        <div>
+          <div style={{ marginBottom: '20px' }}>
+            <button
+              onClick={() => {
+                setCurrentView('projects')
+                setSelectedProject(null)
+                setTranscript([])
+              }}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                marginBottom: '10px'
+              }}
+            >
+              ← 프로젝트 목록으로
+            </button>
+          </div>
+
+          <div style={{
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '20px',
+            backgroundColor: '#f9f9f9',
+            marginBottom: '20px'
+          }}>
+            <h2 style={{ marginTop: 0 }}>{selectedProject.fileName}</h2>
+            <div style={{ fontSize: '14px', color: '#666' }}>
+              <div><strong>프로젝트 ID:</strong> {selectedProject.projectId}</div>
+              <div><strong>상태:</strong> <span style={{
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: selectedProject.status === 'transcribed' ? '#d4edda' : '#fff3cd',
+                color: selectedProject.status === 'transcribed' ? '#155724' : '#856404',
+                marginLeft: '5px'
+              }}>{selectedProject.status}</span></div>
+              <div><strong>생성일:</strong> {new Date(selectedProject.created_at).toLocaleString('ko-KR')}</div>
+            </div>
+          </div>
+
+          <div style={{
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '20px',
+            backgroundColor: 'white'
+          }}>
+            <h3 style={{ marginTop: 0 }}>📝 자막 (Transcript)</h3>
+
+            {loadingTranscript ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                로딩 중...
+              </div>
+            ) : transcript.length === 0 ? (
+              <div style={{
+                padding: '40px',
+                textAlign: 'center',
+                backgroundColor: '#fff3cd',
+                borderRadius: '8px',
+                color: '#856404'
+              }}>
+                {selectedProject.status === 'processing' || selectedProject.status === 'uploading' ? (
+                  <>
+                    ⏳ STT 처리 중입니다. 잠시 후 다시 확인하세요.
+                  </>
+                ) : (
+                  <>
+                    자막이 없습니다.
+                  </>
+                )}
+              </div>
+            ) : (
+              <div style={{
+                maxHeight: '500px',
+                overflowY: 'auto',
+                border: '1px solid #eee',
+                borderRadius: '4px',
+                padding: '10px'
+              }}>
+                {transcript.map((item, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      padding: '10px',
+                      marginBottom: '5px',
+                      backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white',
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      marginBottom: '5px'
+                    }}>
+                      <span style={{ color: '#007bff', fontWeight: 'bold' }}>
+                        #{index + 1}
+                      </span>
+                      <span style={{ color: '#666', fontSize: '12px' }}>
+                        {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
+                      </span>
+                    </div>
+                    <div style={{ color: '#333' }}>
+                      {item.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{
+              marginTop: '20px',
+              padding: '15px',
+              backgroundColor: '#e7f3ff',
+              borderRadius: '4px',
+              fontSize: '14px'
+            }}>
+              <strong>💡 편집 기능 (추후 추가 예정):</strong>
+              <ul style={{ margin: '10px 0 0 0', paddingLeft: '20px' }}>
+                <li>자막 편집 및 수정</li>
+                <li>다국어 번역 (Google Translation API)</li>
+                <li>자막 내보내기 (SRT, VTT, XML)</li>
+                <li>비디오 플레이어 연동</li>
+              </ul>
+            </div>
           </div>
         </div>
       )}
