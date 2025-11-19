@@ -581,11 +581,11 @@ function App() {
                         #{index + 1}
                       </span>
                       <span style={{ color: '#666', fontSize: '12px' }}>
-                        {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
+                        {item.start ? `${item.start.toFixed(2)}s` : '0.00s'} - {item.end ? `${item.end.toFixed(2)}s` : '0.00s'}
                       </span>
                     </div>
                     <div style={{ color: '#333' }}>
-                      {item.text}
+                      {item.text || '(텍스트 없음)'}
                     </div>
                   </div>
                 ))}
