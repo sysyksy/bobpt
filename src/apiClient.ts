@@ -223,6 +223,16 @@ export const getReadUrl = async (fileName: string) => {
   }
 };
 
+export const deleteProject = async (projectId: string) => {
+  try {
+    const response = await axios.delete(`${API_BASE_URL}/projects/${projectId}`);
+    return response.data;
+  } catch (error) {
+    console.error("프로젝트 삭제 실패:", error);
+    throw error;
+  }
+};
+
 export const getTranscript = async (projectId: string) => {
   try {
     const response = await axios.get(`${API_BASE_URL}/projects/${projectId}/transcript`);

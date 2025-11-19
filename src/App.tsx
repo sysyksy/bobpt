@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { register, login, getProjects, getUploadUrl, getTranscript } from './apiClient'
+import { register, login, getProjects, getUploadUrl, getTranscript, deleteProject, translateCaptions, exportProject, updateTranscript, getReadUrl } from './apiClient'
 
 interface Project {
   projectId: string
@@ -28,6 +28,17 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [transcript, setTranscript] = useState<TranscriptItem[]>([])
   const [loadingTranscript, setLoadingTranscript] = useState(false)
+
+  // Editor features state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editedText, setEditedText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [translating, setTranslating] = useState(false)
+  const [translatedCaptions, setTranslatedCaptions] = useState<TranscriptItem[]>([])
+  const [targetLanguage, setTargetLanguage] = useState('en')
+  const [showTranslation, setShowTranslation] = useState(false)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [loadingVideo, setLoadingVideo] = useState(false)
 
   useEffect(() => {
     // Check if already logged in
@@ -173,11 +184,152 @@ function App() {
         setTranscript([])
         setMessage(`⚠️ 아직 자막이 생성되지 않았습니다. 상태: ${project.status}`)
       }
+
+      // Load video URL
+      loadVideoUrl(project.fileName)
     } catch (error: any) {
       setMessage(`자막 로딩 실패: ${error.message}`)
       setTranscript([])
     } finally {
       setLoadingTranscript(false)
+    }
+  }
+
+  const loadVideoUrl = async (fileName: string) => {
+    setLoadingVideo(true)
+    try {
+      const url = await getReadUrl(fileName)
+      setVideoUrl(url)
+    } catch (error: any) {
+      console.error('비디오 URL 로딩 실패:', error)
+      setVideoUrl(null)
+    } finally {
+      setLoadingVideo(false)
+    }
+  }
+
+  const handleDeleteProject = async () => {
+    if (!selectedProject) return
+
+    const confirmed = window.confirm(
+      `"${selectedProject.fileName}" 프로젝트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`
+    )
+
+    if (!confirmed) return
+
+    try {
+      setMessage('프로젝트 삭제 중...')
+      await deleteProject(selectedProject.projectId)
+      setMessage(`✅ 프로젝트가 삭제되었습니다.`)
+      setCurrentView('projects')
+      setSelectedProject(null)
+      setTranscript([])
+      loadProjects()
+    } catch (error: any) {
+      setMessage(`❌ 프로젝트 삭제 실패: ${error.response?.data?.detail || error.message}`)
+    }
+  }
+
+  const handleEditStart = (index: number, text: string) => {
+    setEditingIndex(index)
+    setEditedText(text)
+  }
+
+  const handleEditCancel = () => {
+    setEditingIndex(null)
+    setEditedText('')
+  }
+
+  const handleEditSave = async () => {
+    if (editingIndex === null || !selectedProject) return
+
+    setSaving(true)
+    try {
+      // Update the transcript item
+      const updatedTranscript = [...transcript]
+      updatedTranscript[editingIndex] = {
+        ...updatedTranscript[editingIndex],
+        text: editedText
+      }
+
+      // Convert to backend format (captions with start, end, text)
+      const captions = updatedTranscript.map(item => ({
+        start: item.start || 0,
+        end: item.end || 0,
+        text: item.text || ''
+      }))
+
+      // Send update to backend
+      await updateTranscript(
+        selectedProject.projectId,
+        updatedTranscript.map(item => item.text).join('\n'),
+        captions
+      )
+
+      // Update local state
+      setTranscript(updatedTranscript)
+      setMessage('✅ 자막이 저장되었습니다.')
+      setEditingIndex(null)
+      setEditedText('')
+    } catch (error: any) {
+      setMessage(`❌ 저장 실패: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTranslate = async () => {
+    if (transcript.length === 0) {
+      setMessage('⚠️ 번역할 자막이 없습니다.')
+      return
+    }
+
+    setTranslating(true)
+    setMessage(`번역 중... (${targetLanguage})`)
+
+    try {
+      const captions = transcript.map(item => ({
+        start: item.start || 0,
+        end: item.end || 0,
+        text: item.text || ''
+      }))
+
+      const result = await translateCaptions({
+        captions,
+        targetLanguage
+      })
+
+      // Convert translated captions to TranscriptItem format
+      const translated = result.translated.map((item: any) => ({
+        start: item.start,
+        end: item.end,
+        text: item.text
+      }))
+
+      setTranslatedCaptions(translated)
+      setShowTranslation(true)
+      setMessage(`✅ 번역 완료! (${result.originalLanguage} → ${result.targetLanguage})`)
+    } catch (error: any) {
+      setMessage(`❌ 번역 실패: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setTranslating(false)
+    }
+  }
+
+  const handleExport = async (format: 'srt' | 'vtt' | 'premiere' | 'fcpx') => {
+    if (!selectedProject) return
+
+    try {
+      setMessage(`내보내기 중... (${format.toUpperCase()})`)
+      await exportProject(selectedProject.projectId, {
+        format,
+        frameRate: 30,
+        videoWidth: 1920,
+        videoHeight: 1080
+      })
+      setMessage(`✅ ${format.toUpperCase()} 파일이 다운로드되었습니다.`)
+    } catch (error: any) {
+      setMessage(`❌ 내보내기 실패: ${error.response?.data?.detail || error.message}`)
     }
   }
 
@@ -481,12 +633,16 @@ function App() {
       {/* Editor View */}
       {isLoggedIn && currentView === 'editor' && selectedProject && (
         <div>
-          <div style={{ marginBottom: '20px' }}>
+          {/* Header with Back and Delete buttons */}
+          <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
             <button
               onClick={() => {
                 setCurrentView('projects')
                 setSelectedProject(null)
                 setTranscript([])
+                setTranslatedCaptions([])
+                setShowTranslation(false)
+                setVideoUrl(null)
               }}
               style={{
                 padding: '8px 16px',
@@ -494,14 +650,27 @@ function App() {
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: 'pointer',
-                marginBottom: '10px'
+                cursor: 'pointer'
               }}
             >
               ← 프로젝트 목록으로
             </button>
+            <button
+              onClick={handleDeleteProject}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#dc3545',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              🗑️ 프로젝트 삭제
+            </button>
           </div>
 
+          {/* Project Info */}
           <div style={{
             border: '1px solid #ddd',
             borderRadius: '8px',
@@ -523,19 +692,198 @@ function App() {
             </div>
           </div>
 
+          {/* Video Player */}
+          <div style={{
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '20px',
+            backgroundColor: 'white',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ marginTop: 0 }}>🎬 비디오 플레이어</h3>
+            {loadingVideo ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                비디오 로딩 중...
+              </div>
+            ) : videoUrl ? (
+              <video
+                src={videoUrl}
+                controls
+                style={{
+                  width: '100%',
+                  maxHeight: '500px',
+                  borderRadius: '4px',
+                  backgroundColor: '#000'
+                }}
+              />
+            ) : (
+              <div style={{
+                padding: '40px',
+                textAlign: 'center',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '8px',
+                color: '#666'
+              }}>
+                비디오를 불러올 수 없습니다.
+              </div>
+            )}
+          </div>
+
+          {/* Translation Panel */}
+          <div style={{
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '20px',
+            backgroundColor: 'white',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ marginTop: 0 }}>🌐 번역</h3>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px' }}>
+              <label style={{ fontWeight: 'bold' }}>대상 언어:</label>
+              <select
+                value={targetLanguage}
+                onChange={(e) => setTargetLanguage(e.target.value)}
+                disabled={translating}
+                style={{
+                  padding: '8px',
+                  borderRadius: '4px',
+                  border: '1px solid #ccc',
+                  fontSize: '14px'
+                }}
+              >
+                <option value="en">영어 (English)</option>
+                <option value="ko">한국어 (Korean)</option>
+                <option value="ja">일본어 (Japanese)</option>
+                <option value="zh">중국어 (Chinese)</option>
+                <option value="es">스페인어 (Spanish)</option>
+                <option value="fr">프랑스어 (French)</option>
+                <option value="de">독일어 (German)</option>
+              </select>
+              <button
+                onClick={handleTranslate}
+                disabled={translating || transcript.length === 0}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: translating ? '#ccc' : '#17a2b8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: translating || transcript.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {translating ? '번역 중...' : '번역하기'}
+              </button>
+              {showTranslation && (
+                <button
+                  onClick={() => setShowTranslation(false)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  원문 보기
+                </button>
+              )}
+            </div>
+            {showTranslation && translatedCaptions.length > 0 && (
+              <div style={{
+                padding: '15px',
+                backgroundColor: '#e7f3ff',
+                borderRadius: '4px',
+                fontSize: '14px'
+              }}>
+                <strong>✅ 번역된 자막이 아래에 표시됩니다</strong>
+              </div>
+            )}
+          </div>
+
+          {/* Export Panel */}
+          <div style={{
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '20px',
+            backgroundColor: 'white',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ marginTop: 0 }}>📥 내보내기</h3>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => handleExport('srt')}
+                disabled={transcript.length === 0}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: transcript.length === 0 ? '#ccc' : '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: transcript.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                SRT 다운로드
+              </button>
+              <button
+                onClick={() => handleExport('vtt')}
+                disabled={transcript.length === 0}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: transcript.length === 0 ? '#ccc' : '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: transcript.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                VTT 다운로드
+              </button>
+              <button
+                onClick={() => handleExport('premiere')}
+                disabled={transcript.length === 0}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: transcript.length === 0 ? '#ccc' : '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: transcript.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Premiere XML
+              </button>
+              <button
+                onClick={() => handleExport('fcpx')}
+                disabled={transcript.length === 0}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: transcript.length === 0 ? '#ccc' : '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: transcript.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+              >
+                FCPX XML
+              </button>
+            </div>
+          </div>
+
+          {/* Transcript Editor */}
           <div style={{
             border: '1px solid #ddd',
             borderRadius: '8px',
             padding: '20px',
             backgroundColor: 'white'
           }}>
-            <h3 style={{ marginTop: 0 }}>📝 자막 (Transcript)</h3>
+            <h3 style={{ marginTop: 0 }}>📝 자막 편집기</h3>
 
             {loadingTranscript ? (
               <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
                 로딩 중...
               </div>
-            ) : transcript.length === 0 ? (
+            ) : (showTranslation ? translatedCaptions : transcript).length === 0 ? (
               <div style={{
                 padding: '40px',
                 textAlign: 'center',
@@ -561,7 +909,7 @@ function App() {
                 borderRadius: '4px',
                 padding: '10px'
               }}>
-                {transcript.map((item, index) => (
+                {(showTranslation ? translatedCaptions : transcript).map((item, index) => (
                   <div
                     key={index}
                     style={{
@@ -569,44 +917,100 @@ function App() {
                       marginBottom: '5px',
                       backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white',
                       borderRadius: '4px',
-                      fontSize: '14px'
+                      fontSize: '14px',
+                      border: editingIndex === index ? '2px solid #007bff' : 'none'
                     }}
                   >
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
-                      marginBottom: '5px'
+                      marginBottom: '5px',
+                      alignItems: 'center'
                     }}>
                       <span style={{ color: '#007bff', fontWeight: 'bold' }}>
                         #{index + 1}
                       </span>
-                      <span style={{ color: '#666', fontSize: '12px' }}>
-                        {item.start ? `${item.start.toFixed(2)}s` : '0.00s'} - {item.end ? `${item.end.toFixed(2)}s` : '0.00s'}
-                      </span>
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <span style={{ color: '#666', fontSize: '12px' }}>
+                          {item.start ? `${item.start.toFixed(2)}s` : '0.00s'} - {item.end ? `${item.end.toFixed(2)}s` : '0.00s'}
+                        </span>
+                        {!showTranslation && editingIndex !== index && (
+                          <button
+                            onClick={() => handleEditStart(index, item.text || '')}
+                            style={{
+                              padding: '4px 8px',
+                              backgroundColor: '#007bff',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ✏️ 수정
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ color: '#333' }}>
-                      {item.text || '(텍스트 없음)'}
-                    </div>
+
+                    {editingIndex === index ? (
+                      <div>
+                        <textarea
+                          value={editedText}
+                          onChange={(e) => setEditedText(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            fontSize: '14px',
+                            borderRadius: '4px',
+                            border: '1px solid #ccc',
+                            marginBottom: '8px',
+                            fontFamily: 'inherit',
+                            minHeight: '60px'
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={handleEditSave}
+                            disabled={saving}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: saving ? '#ccc' : '#28a745',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              cursor: saving ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            {saving ? '저장 중...' : '✅ 저장'}
+                          </button>
+                          <button
+                            onClick={handleEditCancel}
+                            disabled={saving}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#6c757d',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              cursor: saving ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            ❌ 취소
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: '#333' }}>
+                        {item.text || '(텍스트 없음)'}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-
-            <div style={{
-              marginTop: '20px',
-              padding: '15px',
-              backgroundColor: '#e7f3ff',
-              borderRadius: '4px',
-              fontSize: '14px'
-            }}>
-              <strong>💡 편집 기능 (추후 추가 예정):</strong>
-              <ul style={{ margin: '10px 0 0 0', paddingLeft: '20px' }}>
-                <li>자막 편집 및 수정</li>
-                <li>다국어 번역 (Google Translation API)</li>
-                <li>자막 내보내기 (SRT, VTT, XML)</li>
-                <li>비디오 플레이어 연동</li>
-              </ul>
-            </div>
           </div>
         </div>
       )}
