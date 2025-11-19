@@ -12,6 +12,7 @@ import datetime
 from typing import List, Dict
 from google.cloud import firestore
 import re
+from audio_separator import preprocess_audio
 
 # Whisper 모델 (base = 빠름, large = 정확함)
 MODEL_NAME = "base"
@@ -207,19 +208,34 @@ def transcribe(audio_path: str, language: str = None) -> Dict:
         return {"error": str(e)}
 
 
-def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> bool:
+def process_video(
+    project_id: str,
+    video_path: str,
+    language: str = "ko-KR",
+    audio_preprocess_mode: str = "highpass",
+    enable_audio_preprocess: bool = True
+) -> bool:
     """
     비디오 파일 전체 처리
 
     1. 음성 추출
-    2. STT 처리
-    3. 데이터베이스 저장
+    2. 오디오 전처리 (선택적)
+    3. STT 처리
+    4. 데이터베이스 저장
+
+    Args:
+        project_id: 프로젝트 ID
+        video_path: 비디오 파일 경로
+        language: 언어 코드 (기본값: "ko-KR")
+        audio_preprocess_mode: "highpass" 또는 "vocal_separation"
+        enable_audio_preprocess: 오디오 전처리 활성화 여부
     """
     db = SessionLocal()
 
     try:
         print(f"\n{'='*60}")
         print(f"[START] Processing project: {project_id}")
+        print(f"[AUDIO PREPROCESS] Mode: {audio_preprocess_mode}, Enabled: {enable_audio_preprocess}")
         print(f"{'='*60}")
 
         # 프로젝트 조회
@@ -235,17 +251,28 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
         )
 
         # Step 1: 오디오 추출
-        print(f"\n[1/3] Extracting audio...")
+        print(f"\n[1/4] Extracting audio...")
         if not extract_audio(video_path, audio_path):
             project.status = "failed"
             project.error_message = "Failed to extract audio"
             db.commit()
             return False
 
-        # Step 2: STT 처리 (자동 언어 감지)
-        print(f"\n[2/3] Performing speech-to-text (auto-detect language)...")
+        # Step 2: 오디오 전처리 (선택적)
+        print(f"\n[2/4] Preprocessing audio...")
+        processed_audio_dir = os.path.join(os.path.dirname(video_path), "processed_audio")
+        processed_audio_path = preprocess_audio(
+            audio_path,
+            processed_audio_dir,
+            mode=audio_preprocess_mode,
+            enable=enable_audio_preprocess
+        )
+        print(f"[INFO] Processed audio: {processed_audio_path}")
+
+        # Step 3: STT 처리 (자동 언어 감지)
+        print(f"\n[3/4] Performing speech-to-text (auto-detect language)...")
         # language 파라미터를 None으로 전달하여 Whisper가 자동으로 언어 감지
-        result = transcribe(audio_path, language=None)
+        result = transcribe(processed_audio_path, language=None)
 
         if "error" in result:
             project.status = "failed"
@@ -253,8 +280,8 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
             db.commit()
             return False
 
-        # Step 3: 데이터베이스 저장
-        print(f"\n[3/3] Saving to database...")
+        # Step 4: 데이터베이스 저장
+        print(f"\n[4/4] Saving to database...")
         detected_lang = result.get("detected_language", "unknown")
         print(f"[INFO] Detected language: {detected_lang}")
 
@@ -298,8 +325,15 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
         try:
             if os.path.exists(audio_path):
                 os.remove(audio_path)
-        except:
-            pass
+            # 전처리된 오디오 파일 삭제
+            if processed_audio_path != audio_path and os.path.exists(processed_audio_path):
+                os.remove(processed_audio_path)
+            # 전처리 디렉토리 삭제 (비어있으면)
+            if os.path.exists(processed_audio_dir):
+                import shutil
+                shutil.rmtree(processed_audio_dir, ignore_errors=True)
+        except Exception as e:
+            print(f"[WARN] Failed to cleanup temp files: {e}")
 
         return True
 
