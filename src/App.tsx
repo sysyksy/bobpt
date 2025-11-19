@@ -62,6 +62,19 @@ function App() {
           setShowTranslation(false)
           setVideoUrl(null)
         }
+      } else {
+        // No state found - default based on login status
+        const token = localStorage.getItem('bobpt_auth_token')
+        const defaultView = token ? 'projects' : 'auth'
+        setCurrentView(defaultView)
+        setSelectedProject(null)
+        setTranscript([])
+        setTranslatedCaptions([])
+        setShowTranslation(false)
+        setVideoUrl(null)
+
+        // Update history state
+        window.history.replaceState({ view: defaultView }, '', `#${defaultView}`)
       }
     }
 
