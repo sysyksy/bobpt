@@ -24,6 +24,8 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [processingProgress, setProcessingProgress] = useState(0)
   const [currentView, setCurrentView] = useState<'auth' | 'projects' | 'upload' | 'editor'>('auth')
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [transcript, setTranscript] = useState<TranscriptItem[]>([])
@@ -145,25 +147,45 @@ function App() {
     }
 
     setUploading(true)
-    setMessage('업로드 중...')
+    setUploadProgress(0)
+    setProcessingProgress(0)
+    setMessage('업로드 준비 중...')
 
     try {
       // 1. Get upload URL from backend
       const { projectId, uploadUrl } = await getUploadUrl(selectedFile.name)
       setMessage(`프로젝트 생성됨: ${projectId}. 업로드 시작...`)
 
-      // 2. Upload file to GCS
-      const uploadResponse = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': selectedFile.type || 'video/mp4',
-        },
-        body: selectedFile,
-      })
+      // 2. Upload file to GCS with progress tracking
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed: ${uploadResponse.status}`)
-      }
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100)
+            setUploadProgress(percentComplete)
+            setMessage(`업로드 중... ${percentComplete}%`)
+          }
+        })
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadProgress(100)
+            resolve()
+          } else {
+            reject(new Error(`Upload failed: ${xhr.status}`))
+          }
+        })
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload failed: Network error'))
+        })
+
+        xhr.open('PUT', uploadUrl)
+        xhr.setRequestHeader('Content-Type', selectedFile.type || 'video/mp4')
+        xhr.send(selectedFile)
+      })
 
       setMessage(`✅ 업로드 완료! 프로젝트 ID: ${projectId}. STT 처리 시작...`)
 
@@ -177,6 +199,8 @@ function App() {
       navigateToView('projects')
     } catch (error: any) {
       setMessage(`업로드 실패: ${error.message}`)
+      setUploadProgress(0)
+      setProcessingProgress(0)
     } finally {
       setUploading(false)
     }
@@ -185,25 +209,32 @@ function App() {
   const pollTranscript = async (projectId: string, attempts = 0) => {
     if (attempts > 20) {
       setMessage(`⚠️ 처리 시간이 너무 오래 걸립니다. 프로젝트 목록에서 확인하세요.`)
+      setProcessingProgress(0)
       return
     }
+
+    // Calculate processing progress (0-100%)
+    const progress = Math.min(Math.round((attempts / 20) * 100), 95)
+    setProcessingProgress(progress)
 
     try {
       const transcript = await getTranscript(projectId)
       if (transcript.status === 'completed') {
+        setProcessingProgress(100)
         setMessage(`🎉 STT 완료! ${transcript.word_count}개 단어 인식됨.`)
         loadProjects()
       } else if (transcript.isProcessing) {
-        setMessage(`처리 중... (${attempts + 1}/20)`)
+        setMessage(`STT 처리 중... ${progress}% (${attempts + 1}/20)`)
         setTimeout(() => pollTranscript(projectId, attempts + 1), 5000)
       }
     } catch (error: any) {
       if (error.response?.status === 202) {
         // Still processing
-        setMessage(`처리 중... (${attempts + 1}/20)`)
+        setMessage(`STT 처리 중... ${progress}% (${attempts + 1}/20)`)
         setTimeout(() => pollTranscript(projectId, attempts + 1), 5000)
       } else {
         setMessage(`처리 확인 실패: ${error.message}`)
+        setProcessingProgress(0)
       }
     }
   }
@@ -590,6 +621,35 @@ function App() {
                     }}>{project.status}</span></div>
                     <div>생성: {new Date(project.created_at).toLocaleString('ko-KR')}</div>
                   </div>
+
+                  {/* Show processing indicator for in-progress projects */}
+                  {(project.status === 'processing' || project.status === 'uploading') && (
+                    <div style={{ marginTop: '10px' }}>
+                      <div style={{
+                        width: '100%',
+                        height: '4px',
+                        backgroundColor: '#e9ecef',
+                        borderRadius: '2px',
+                        overflow: 'hidden'
+                      }}>
+                        <div style={{
+                          width: '100%',
+                          height: '100%',
+                          background: 'linear-gradient(90deg, #007bff 0%, #007bff 50%, transparent 50%, transparent 100%)',
+                          backgroundSize: '40px 100%',
+                          animation: 'progress-bar-stripes 1s linear infinite'
+                        }} />
+                      </div>
+                      <style>
+                        {`
+                          @keyframes progress-bar-stripes {
+                            0% { background-position: 40px 0; }
+                            100% { background-position: 0 0; }
+                          }
+                        `}
+                      </style>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -676,6 +736,84 @@ function App() {
               취소
             </button>
           </div>
+
+          {/* Upload Progress Bar */}
+          {uploading && uploadProgress > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: '5px',
+                fontSize: '14px',
+                color: '#666'
+              }}>
+                <span>파일 업로드</span>
+                <span>{uploadProgress}%</span>
+              </div>
+              <div style={{
+                width: '100%',
+                height: '24px',
+                backgroundColor: '#e9ecef',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                border: '1px solid #dee2e6'
+              }}>
+                <div style={{
+                  width: `${uploadProgress}%`,
+                  height: '100%',
+                  backgroundColor: uploadProgress === 100 ? '#28a745' : '#007bff',
+                  transition: 'width 0.3s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}>
+                  {uploadProgress > 10 && `${uploadProgress}%`}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Processing Progress Bar */}
+          {processingProgress > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginBottom: '5px',
+                fontSize: '14px',
+                color: '#666'
+              }}>
+                <span>STT 처리 중</span>
+                <span>{processingProgress}%</span>
+              </div>
+              <div style={{
+                width: '100%',
+                height: '24px',
+                backgroundColor: '#e9ecef',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                border: '1px solid #dee2e6'
+              }}>
+                <div style={{
+                  width: `${processingProgress}%`,
+                  height: '100%',
+                  backgroundColor: processingProgress === 100 ? '#28a745' : '#ffc107',
+                  transition: 'width 0.3s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: processingProgress === 100 ? 'white' : '#000',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}>
+                  {processingProgress > 10 && `${processingProgress}%`}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
