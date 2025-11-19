@@ -288,22 +288,31 @@ function App() {
     }
   }
 
-  const handleDeleteProject = async () => {
-    if (!selectedProject) return
+  const handleDeleteProject = async (projectId?: string) => {
+    const targetProject = projectId
+      ? projects.find(p => p.projectId === projectId)
+      : selectedProject
+
+    if (!targetProject) return
 
     const confirmed = window.confirm(
-      `"${selectedProject.fileName}" 프로젝트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`
+      `"${targetProject.fileName}" 프로젝트를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`
     )
 
     if (!confirmed) return
 
     try {
       setMessage('프로젝트 삭제 중...')
-      await deleteProject(selectedProject.projectId)
+      await deleteProject(targetProject.projectId)
       setMessage(`✅ 프로젝트가 삭제되었습니다.`)
-      navigateToView('projects')
-      setSelectedProject(null)
-      setTranscript([])
+
+      // If we deleted the currently selected project, navigate back
+      if (!projectId || selectedProject?.projectId === targetProject.projectId) {
+        navigateToView('projects')
+        setSelectedProject(null)
+        setTranscript([])
+      }
+
       loadProjects()
     } catch (error: any) {
       setMessage(`❌ 프로젝트 삭제 실패: ${error.response?.data?.detail || error.message}`)
@@ -542,118 +551,118 @@ function App() {
         </div>
       )}
 
-      {/* Projects View */}
+      {/* Projects View - BOBPT Hub Design */}
       {isLoggedIn && currentView === 'projects' && (
-        <div>
-          <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
-            <button
-              onClick={() => navigateToView('upload')}
-              style={{
-                padding: '12px 24px',
-                backgroundColor: '#28a745',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '16px',
-                cursor: 'pointer'
-              }}
-            >
-              ➕ 새 비디오 업로드
-            </button>
-            <button
-              onClick={loadProjects}
-              style={{
-                padding: '12px 24px',
-                backgroundColor: '#17a2b8',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '16px',
-                cursor: 'pointer'
-              }}
-            >
-              🔄 새로고침
-            </button>
-          </div>
+        <div className="min-h-screen bg-[#0a0a0a]">
+          {/* Header */}
+          <header className="px-8 py-6 border-b border-gray-800">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold">
+                  <span className="gradient-text">BOBPT Hub</span>
+                </h1>
+              </div>
 
-          <h2>프로젝트 목록 ({projects.length}개)</h2>
-          {projects.length === 0 ? (
-            <div style={{
-              padding: '40px',
-              textAlign: 'center',
-              backgroundColor: '#f9f9f9',
-              borderRadius: '8px',
-              color: '#666'
-            }}>
-              아직 프로젝트가 없습니다. 비디오를 업로드하여 시작하세요!
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {projects.map((project) => (
-                <div
-                  key={project.projectId}
-                  onClick={() => handleOpenProject(project)}
-                  style={{
-                    border: '1px solid #ddd',
-                    borderRadius: '8px',
-                    padding: '15px',
-                    backgroundColor: 'white',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#f0f8ff'
-                    e.currentTarget.style.borderColor = '#007bff'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'white'
-                    e.currentTarget.style.borderColor = '#ddd'
-                  }}
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={loadProjects}
+                  className="btn-ghost"
                 >
-                  <h3 style={{ margin: '0 0 10px 0' }}>{project.fileName}</h3>
-                  <div style={{ fontSize: '14px', color: '#666' }}>
-                    <div>ID: {project.projectId}</div>
-                    <div>상태: <span style={{
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      backgroundColor: project.status === 'transcribed' ? '#d4edda' : '#fff3cd',
-                      color: project.status === 'transcribed' ? '#155724' : '#856404'
-                    }}>{project.status}</span></div>
-                    <div>생성: {new Date(project.created_at).toLocaleString('ko-KR')}</div>
-                  </div>
-
-                  {/* Show processing indicator for in-progress projects */}
-                  {(project.status === 'processing' || project.status === 'uploading') && (
-                    <div style={{ marginTop: '10px' }}>
-                      <div style={{
-                        width: '100%',
-                        height: '4px',
-                        backgroundColor: '#e9ecef',
-                        borderRadius: '2px',
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          width: '100%',
-                          height: '100%',
-                          background: 'linear-gradient(90deg, #007bff 0%, #007bff 50%, transparent 50%, transparent 100%)',
-                          backgroundSize: '40px 100%',
-                          animation: 'progress-bar-stripes 1s linear infinite'
-                        }} />
-                      </div>
-                      <style>
-                        {`
-                          @keyframes progress-bar-stripes {
-                            0% { background-position: 40px 0; }
-                            100% { background-position: 0 0; }
-                          }
-                        `}
-                      </style>
-                    </div>
-                  )}
-                </div>
-              ))}
+                  🔄 새로고침
+                </button>
+                <button
+                  onClick={() => navigateToView('upload')}
+                  className="btn-primary"
+                >
+                  ➕ 새 프로젝트
+                </button>
+              </div>
             </div>
-          )}
+          </header>
+
+          {/* Main Content */}
+          <main className="p-8">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-white mb-2">내 프로젝트</h2>
+              <p className="text-gray-400">AI 비디오 자막 프로젝트 관리</p>
+            </div>
+
+            {/* Project Grid */}
+            {projects.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center mb-6">
+                  <span className="text-5xl">📹</span>
+                </div>
+                <h3 className="text-xl font-medium text-white mb-2">아직 프로젝트가 없습니다</h3>
+                <p className="text-gray-400 mb-6">비디오를 업로드하여 AI 자막 생성을 시작하세요</p>
+                <button
+                  onClick={() => navigateToView('upload')}
+                  className="btn-primary"
+                >
+                  첫 프로젝트 시작하기
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {projects.map((project) => (
+                  <div
+                    key={project.projectId}
+                    onClick={() => handleOpenProject(project)}
+                    className="card-hover cursor-pointer group"
+                  >
+                    {/* Thumbnail Placeholder */}
+                    <div className="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900 rounded-t-lg overflow-hidden">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-6xl opacity-50">🎬</span>
+                      </div>
+
+                      {/* Status Badge - Top Right */}
+                      <div className="absolute top-3 right-3">
+                        {project.status === 'transcribed' ? (
+                          <span className="badge-green">완료</span>
+                        ) : project.status === 'processing' ? (
+                          <span className="badge-yellow">처리중</span>
+                        ) : project.status === 'uploading' ? (
+                          <span className="badge-blue">업로드중</span>
+                        ) : (
+                          <span className="badge-red">대기중</span>
+                        )}
+                      </div>
+
+                      {/* Processing Progress Bar */}
+                      {(project.status === 'processing' || project.status === 'uploading') && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-900">
+                          <div className="h-full progress-bar animate-pulse" style={{ width: '60%' }} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card Content */}
+                    <div className="p-4">
+                      <h3 className="text-white font-medium mb-2 truncate">{project.fileName}</h3>
+
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 text-gray-400">
+                          <span>🕐</span>
+                          <span>{new Date(project.created_at).toLocaleDateString('ko-KR')}</span>
+                        </div>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteProject(project.projectId)
+                          }}
+                          className="text-gray-500 hover:text-red-400 transition-colors"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </main>
         </div>
       )}
 
@@ -836,7 +845,7 @@ function App() {
               ← 뒤로가기
             </button>
             <button
-              onClick={handleDeleteProject}
+              onClick={() => handleDeleteProject()}
               style={{
                 padding: '8px 16px',
                 backgroundColor: '#dc3545',
