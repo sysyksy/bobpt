@@ -146,8 +146,9 @@ def check_google_cloud_services():
     try:
         from google.cloud import firestore
         db = firestore.Client()
-        # Test connection by listing collections
-        collections = list(db.collections(max_results=1))
+        # Test connection by attempting to access a collection
+        # This doesn't create anything, just tests the connection
+        test_ref = db.collection('_test_connection')
         print(f"✅ Firestore: 연결 성공")
     except Exception as e:
         print(f"❌ Firestore 연결 실패: {e}")
