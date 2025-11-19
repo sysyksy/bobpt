@@ -1,64 +1,105 @@
 # BobPT Video Editor - Frontend
 
-Document-based Video Editor inspired by Vrew. AI-powered video editing tool with transcript-based editing interface.
-
-## Features
-
-- **Dark Mode Interface**: Beautiful dark theme with neon blue accents
-- **Video Upload**: Drag & drop or URL-based video import
-- **Transcript Editor**: Document-style editing with automatic sync
-- **AI Features**:
-  - Automatic filler word detection and removal
-  - AI-powered shorts generation
-  - Speaker identification
-- **Export Options**: SRT, VTT, XML, JSON formats
+Modern video editor built with Vite, React, and Tailwind CSS. Features document-based editing inspired by Vrew.
 
 ## Tech Stack
 
+- **Vite**: Fast build tool and dev server
 - **React 18**: Modern React with hooks
-- **Tailwind CSS**: Utility-first styling with custom dark theme
-- **react-player**: Video playback with full control
-- **react-icons**: Beautiful icon library
-- **axios**: HTTP client for API calls
+- **Tailwind CSS**: Utility-first styling
+- **Zustand**: Lightweight state management
+- **React Router**: Client-side routing
+- **react-player**: Video playback
+- **Axios**: HTTP client for API calls
 
 ## Project Structure
 
 ```
 frontend/
-├── public/
-│   └── index.html
 ├── src/
-│   ├── components/
-│   │   ├── VideoUploader.jsx    # Video upload interface
-│   │   ├── VideoPlayer.jsx      # Video playback with controls
-│   │   ├── ScriptEditor.jsx     # Transcript editing panel
-│   │   ├── TranscriptSegment.jsx # Individual transcript card
-│   │   └── MagicToolbar.jsx     # AI features toolbar
-│   ├── App.jsx                   # Main application component
-│   ├── index.js                  # Entry point
-│   └── index.css                 # Global styles
-├── package.json
-├── tailwind.config.js
-└── postcss.config.js
+│   ├── components/       # Reusable UI components
+│   ├── pages/            # Main pages (Home, Editor)
+│   ├── store/            # Zustand stores
+│   │   └── useVideoStore.js
+│   ├── services/         # API service functions
+│   │   └── api.js
+│   ├── App.jsx           # Router setup
+│   ├── main.jsx          # Entry point
+│   └── index.css         # Global styles
+├── public/               # Static assets
+├── index.html            # HTML entry point
+├── vite.config.js        # Vite configuration (with API proxy)
+├── tailwind.config.js    # Tailwind configuration
+└── package.json
 ```
+
+## Key Features
+
+### State Management (Zustand)
+
+The app uses Zustand for global state management. Main store: `useVideoStore.js`
+
+**State:**
+- `currentTime`: Current video playback time (seconds)
+- `isPlaying`: Video playback state
+- `transcript`: Original transcript (Firestore structure: `start`, `end`, `text`)
+- `translatedScript`: Translated transcript
+- `fillersRemoved`: Filler removal mode
+
+**Actions:**
+- `setCurrentTime()`: Update playback time
+- `setIsPlaying()`: Control playback
+- `setTranscript()`: Load transcript data
+- `toggleFillers()`: Toggle filler removal
+- `getActiveSegment()`: Get current active segment
+
+### API Proxy
+
+Vite dev server proxies `/api` requests to `http://localhost:8000` (FastAPI backend).
+
+```javascript
+// vite.config.js
+server: {
+  proxy: {
+    '/api': 'http://localhost:8000'
+  }
+}
+```
+
+### Editor Page
+
+**Left Panel (5:5 split):**
+- `react-player` for video playback
+- `onProgress` event updates `currentTime` in store continuously
+
+**Right Panel:**
+- Transcript segments mapped from store
+- **Active Highlight**: Segments where `start <= currentTime && end >= currentTime` get highlighted
+- **Click to Seek**: Clicking a segment calls `playerRef.current.seekTo(segment.start)`
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 16+ and npm
+- Node.js 16+
+- npm or yarn
 
 ### Installation
 
 ```bash
-# Install dependencies
+cd frontend
 npm install
-
-# Start development server
-npm start
 ```
 
-The app will open at [http://localhost:3000](http://localhost:3000)
+### Development
+
+```bash
+npm run dev
+```
+
+App will run at [http://localhost:3000](http://localhost:3000)
+
+API requests to `/api/*` will be proxied to `http://localhost:8000`
 
 ### Build for Production
 
@@ -66,85 +107,43 @@ The app will open at [http://localhost:3000](http://localhost:3000)
 npm run build
 ```
 
-## Component Overview
+Built files will be in `dist/` directory.
 
-### VideoUploader
+### Preview Production Build
 
-Entry point for uploading videos. Supports:
-- Drag and drop file upload
-- URL-based video loading (YouTube, Vimeo, direct links)
-- File format validation
+```bash
+npm run preview
+```
 
-### VideoPlayer
+## API Integration
 
-Video playback component with:
-- Play/pause controls
-- Volume control with mute
-- Seek bar with precise time selection
-- Fullscreen support
-- Sync with transcript timeline
+All API calls are in `src/services/api.js`:
 
-### ScriptEditor
-
-Transcript editing panel featuring:
-- Auto-scrolling to current segment
-- Click-to-seek functionality
-- Language toggle (Original/Translated)
-- Filler word highlighting
-- Active segment highlighting
-
-### MagicToolbar
-
-AI-powered features:
-- **Remove Fillers**: Toggle to hide/show filler words
-- **Make Shorts**: AI-generated short clips
-- **Export**: Download in various formats
-
-## State Management
-
-The app uses React hooks for state management:
-
-- `videoData`: Current video information
-- `transcripts`: Array of transcript segments
-- `currentTime`: Current playback position
-- `seekTo`: Programmatic seek control
-- `showFillers`: Toggle for filler word visibility
-- `language`: Current display language (original/translated)
+- `uploadVideo(file)`: Upload video file
+- `getVideoDetails(videoId)`: Get video metadata
+- `getTranscript(videoId)`: Get original transcript
+- `getTranslatedTranscript(videoId)`: Get translated transcript
+- `generateShorts(videoId)`: AI shorts generation
+- `exportTranscript(videoId, format)`: Export in SRT/VTT/XML
 
 ## Backend Integration
 
-The frontend is designed to work with a backend API. Update the following in production:
+Make sure the FastAPI backend is running on port 8000:
 
-1. **Video Upload**: `VideoUploader.jsx` - Update API endpoint
-2. **Transcript Fetch**: `App.jsx` - Replace mock data with API call
-3. **AI Features**: Implement backend calls for shorts generation
-
-Example API integration:
-
-```javascript
-// In VideoUploader.jsx
-const response = await axios.post('/api/upload', formData);
-
-// In App.jsx
-const data = await axios.get(`/api/analyze/${videoId}`);
-setTranscripts(data.transcripts);
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
 ```
 
 ## Styling
 
-Custom Tailwind theme with dark mode colors:
+Dark mode theme with custom Tailwind colors:
 
-- `dark-bg`: #0a0a0a (Main background)
-- `dark-secondary`: #1a1a1a (Secondary background)
-- `dark-border`: #2a2a2a (Border color)
-- `neon-blue`: #00d4ff (Primary accent)
-- `neon-blue-dim`: #0088aa (Dimmed accent)
-
-## Development Notes
-
-- The app currently uses mock transcript data for development
-- Video processing and analysis features need backend integration
-- Export functionality is partially implemented (SRT and JSON work)
+- `dark-bg`: #0a0a0a
+- `dark-secondary`: #1a1a1a
+- `dark-border`: #2a2a2a
+- `neon-blue`: #00d4ff
+- `neon-blue-dim`: #0088aa
 
 ## License
 
