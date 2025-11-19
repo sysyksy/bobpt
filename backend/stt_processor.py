@@ -259,16 +259,21 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
         # Firestore로 동기화 (백업)
         try:
             if firestore_db:
+                # captions를 JSON 문자열에서 객체로 파싱
+                captions_data = json.loads(project.captions) if isinstance(project.captions, str) else project.captions
+
                 firestore_db.collection("projects").document(project_id).set({
                     "projectId": project_id,
                     "fileName": project.file_name,
-                    "transcript": project.transcript,
-                    "captions": project.captions,
+                    "full_text": project.transcript,
+                    "transcript": captions_data,  # 배열로 저장
+                    "captions": captions_data,     # 호환성을 위해 두 필드 모두 저장
                     "status": "transcribed",
                     "language": project.language,
                     "transcriptLength": project.transcript_length,
                     "uploadedAt": project.uploaded_at.isoformat() if project.uploaded_at else None,
                     "completedAt": project.completed_at.isoformat() if project.completed_at else None,
+                    "created_at": project.completed_at.isoformat() if project.completed_at else None,
                     "lastUpdated": datetime.datetime.utcnow().isoformat(),
                 })
                 print(f"[OK] Project {project_id} backed up to Firestore")

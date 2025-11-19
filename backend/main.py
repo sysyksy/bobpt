@@ -505,14 +505,25 @@ def get_transcript(project_id: str):
                 content={"error": "Transcript not available yet", "status": "processing"}
             )
 
-        # WordInfo 형식으로 변환
+        # Captions 형식 변환
+        # 새 형식: [{"start": 0.0, "end": 5.2, "text": "..."}]
+        # 구 형식: [{"start_time": 0.0, "end_time": 5.2, "word": "..."}]
         captions = []
-        for word_info in transcript:
-            captions.append({
-                "start": word_info.get("start_time", 0),
-                "end": word_info.get("end_time", 0),
-                "text": word_info.get("word", ""),
-            })
+        for item in transcript:
+            # 새 형식 확인 (start, end, text)
+            if "start" in item and "end" in item:
+                captions.append({
+                    "start": item.get("start", 0),
+                    "end": item.get("end", 0),
+                    "text": item.get("text", ""),
+                })
+            # 구 형식 (start_time, end_time, word)
+            elif "start_time" in item:
+                captions.append({
+                    "start": item.get("start_time", 0),
+                    "end": item.get("end_time", 0),
+                    "text": item.get("word", ""),
+                })
 
         return {
             "projectId": project_id,
