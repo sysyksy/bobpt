@@ -140,13 +140,13 @@ def extract_audio(video_path: str, audio_path: str) -> bool:
         return False
 
 
-def transcribe(audio_path: str, language: str = "ko") -> Dict:
+def transcribe(audio_path: str, language: str = None) -> Dict:
     """
     Whisper를 사용한 음성 인식
 
     Args:
         audio_path: 오디오 파일 경로
-        language: 언어 코드 (ko, en, ja 등)
+        language: 언어 코드 (ko, en, ja 등). None이면 자동 감지
 
     Returns:
         {
@@ -154,28 +154,33 @@ def transcribe(audio_path: str, language: str = "ko") -> Dict:
             "segments": [
                 {"start": 0.0, "end": 5.2, "text": "안녕하세요"},
                 ...
-            ]
+            ],
+            "detected_language": "ko"
         }
     """
     try:
         if not os.path.exists(audio_path):
             return {"error": f"Audio file not found: {audio_path}"}
 
-        print(f"[INFO] Transcribing {audio_path} (language: {language})...")
+        if language:
+            print(f"[INFO] Transcribing {audio_path} (language: {language})...")
+        else:
+            print(f"[INFO] Transcribing {audio_path} (auto-detect language)...")
 
         model = load_model()
 
-        # Whisper 처리
+        # Whisper 처리 - language=None이면 자동 감지
         result = model.transcribe(
             audio_path,
-            language=language,
+            language=language,  # None이면 자동 감지
             verbose=False,
             temperature=0,  # 일관된 결과
-            word_level_timings=True
+            word_timestamps=True  # word_level_timings 대신 word_timestamps 사용
         )
 
         # 결과 정리
         transcript = result.get("text", "").strip()
+        detected_language = result.get("language", "unknown")
         segments = []
 
         for segment in result.get("segments", []):
@@ -188,11 +193,13 @@ def transcribe(audio_path: str, language: str = "ko") -> Dict:
         word_count = len(transcript.split())
 
         print(f"[OK] Transcription complete: {word_count} words, {len(segments)} segments")
+        print(f"[OK] Detected language: {detected_language}")
 
         return {
             "text": transcript,
             "segments": segments,
-            "word_count": word_count
+            "word_count": word_count,
+            "detected_language": detected_language
         }
 
     except Exception as e:
@@ -235,10 +242,10 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
             db.commit()
             return False
 
-        # Step 2: STT 처리
-        print(f"\n[2/3] Performing speech-to-text...")
-        lang_code = language.split("-")[0].lower()  # "ko-KR" → "ko"
-        result = transcribe(audio_path, lang_code)
+        # Step 2: STT 처리 (자동 언어 감지)
+        print(f"\n[2/3] Performing speech-to-text (auto-detect language)...")
+        # language 파라미터를 None으로 전달하여 Whisper가 자동으로 언어 감지
+        result = transcribe(audio_path, language=None)
 
         if "error" in result:
             project.status = "failed"
@@ -248,11 +255,15 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
 
         # Step 3: 데이터베이스 저장
         print(f"\n[3/3] Saving to database...")
+        detected_lang = result.get("detected_language", "unknown")
+        print(f"[INFO] Detected language: {detected_lang}")
+
         project.status = "transcribed"
         project.has_transcript = True
         project.transcript = result["text"]
         project.transcript_length = result.get("word_count", 0)
         project.captions = json.dumps(result["segments"], ensure_ascii=False)
+        project.language = detected_lang  # 감지된 언어로 업데이트
         project.completed_at = datetime.datetime.utcnow()
         db.commit()
 
@@ -269,7 +280,7 @@ def process_video(project_id: str, video_path: str, language: str = "ko-KR") -> 
                     "transcript": captions_data,  # 배열로 저장
                     "captions": captions_data,     # 호환성을 위해 두 필드 모두 저장
                     "status": "transcribed",
-                    "language": project.language,
+                    "language": detected_lang,  # 감지된 언어
                     "transcriptLength": project.transcript_length,
                     "uploadedAt": project.uploaded_at.isoformat() if project.uploaded_at else None,
                     "completedAt": project.completed_at.isoformat() if project.completed_at else None,
