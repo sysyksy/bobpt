@@ -208,6 +208,8 @@ __marimo__/
 
 # Frontend dependencies
 /frontend/node_modules
+node_modules/
+dist/
 
 # Backend virtual environment
 /backend/venv
