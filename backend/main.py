@@ -384,24 +384,35 @@ def get_projects_list():
 
     try:
         projects_ref = db.collection("projects")
-        docs = projects_ref.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
+        # created_at이 없는 문서도 처리하기 위해 모든 문서를 가져온 후 정렬
+        docs = projects_ref.stream()
 
         projects_list = []
         for doc in docs:
             data = doc.to_dict()
+            # created_at이 None이거나 없는 경우를 처리
+            created_at = data.get("created_at")
+            if created_at is None:
+                created_at = data.get("uploadedAt") or data.get("lastUpdated")
+
             projects_list.append({
-                "projectId": data.get("id"),
-                "fileName": data.get("fileName"),
-                "status": data.get("status"),
-                "language": data.get("language"),
-                "uploadedAt": data.get("created_at"),
+                "projectId": data.get("id") or data.get("projectId") or doc.id,
+                "fileName": data.get("fileName", "Unknown"),
+                "status": data.get("status", "unknown"),
+                "language": data.get("language", "ko-KR"),
+                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at) if created_at else None,
                 "transcriptLength": len(data.get("transcript", [])) if isinstance(data.get("transcript"), list) else 0,
             })
+
+        # 날짜로 정렬 (최신순)
+        projects_list.sort(key=lambda x: x.get("created_at") or "", reverse=True)
 
         return {"projects": projects_list}
 
     except Exception as e:
         print(f"[ERROR] Failed to get projects: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/projects/{project_id}")

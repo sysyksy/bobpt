@@ -48,7 +48,43 @@ function App() {
       setCurrentView('projects')
       loadProjects()
     }
+
+    // Handle browser back/forward buttons
+    const handlePopState = (event: PopStateEvent) => {
+      if (event.state && event.state.view) {
+        setCurrentView(event.state.view)
+        if (event.state.view === 'editor' && event.state.project) {
+          setSelectedProject(event.state.project)
+        } else {
+          setSelectedProject(null)
+          setTranscript([])
+          setTranslatedCaptions([])
+          setShowTranslation(false)
+          setVideoUrl(null)
+        }
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    // Set initial history state
+    if (!window.history.state) {
+      window.history.replaceState({ view: currentView }, '')
+    }
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
   }, [])
+
+  const navigateToView = (view: 'auth' | 'projects' | 'upload' | 'editor', project?: Project) => {
+    setCurrentView(view)
+    window.history.pushState({ view, project }, '', `#${view}`)
+  }
+
+  const goBack = () => {
+    window.history.back()
+  }
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -59,13 +95,13 @@ function App() {
         const response = await login(email, password)
         setMessage(`로그인 성공! 환영합니다, ${response.user.name}님`)
         setIsLoggedIn(true)
-        setCurrentView('projects')
+        navigateToView('projects')
         loadProjects()
       } else {
         const response = await register(email, password, name)
         setMessage(`회원가입 성공! 환영합니다, ${response.user.name}님`)
         setIsLoggedIn(true)
-        setCurrentView('projects')
+        navigateToView('projects')
       }
     } catch (error: any) {
       setMessage(`오류: ${error.response?.data?.detail || error.message}`)
@@ -125,7 +161,7 @@ function App() {
       pollTranscript(projectId)
 
       setSelectedFile(null)
-      setCurrentView('projects')
+      navigateToView('projects')
     } catch (error: any) {
       setMessage(`업로드 실패: ${error.message}`)
     } finally {
@@ -163,14 +199,14 @@ function App() {
     localStorage.removeItem('bobpt_auth_token')
     localStorage.removeItem('bobpt_user')
     setIsLoggedIn(false)
-    setCurrentView('auth')
+    navigateToView('auth')
     setProjects([])
     setMessage('')
   }
 
   const handleOpenProject = async (project: Project) => {
     setSelectedProject(project)
-    setCurrentView('editor')
+    navigateToView('editor', project)
     setLoadingTranscript(true)
     setMessage(`프로젝트 "${project.fileName}" 로딩 중...`)
 
@@ -221,7 +257,7 @@ function App() {
       setMessage('프로젝트 삭제 중...')
       await deleteProject(selectedProject.projectId)
       setMessage(`✅ 프로젝트가 삭제되었습니다.`)
-      setCurrentView('projects')
+      navigateToView('projects')
       setSelectedProject(null)
       setTranscript([])
       loadProjects()
@@ -467,7 +503,7 @@ function App() {
         <div>
           <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
             <button
-              onClick={() => setCurrentView('upload')}
+              onClick={() => navigateToView('upload')}
               style={{
                 padding: '12px 24px',
                 backgroundColor: '#28a745',
@@ -612,7 +648,7 @@ function App() {
               {uploading ? '업로드 중...' : '업로드 시작'}
             </button>
             <button
-              onClick={() => setCurrentView('projects')}
+              onClick={goBack}
               disabled={uploading}
               style={{
                 padding: '12px 24px',
@@ -636,14 +672,7 @@ function App() {
           {/* Header with Back and Delete buttons */}
           <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
             <button
-              onClick={() => {
-                setCurrentView('projects')
-                setSelectedProject(null)
-                setTranscript([])
-                setTranslatedCaptions([])
-                setShowTranslation(false)
-                setVideoUrl(null)
-              }}
+              onClick={goBack}
               style={{
                 padding: '8px 16px',
                 backgroundColor: '#6c757d',
@@ -653,7 +682,7 @@ function App() {
                 cursor: 'pointer'
               }}
             >
-              ← 프로젝트 목록으로
+              ← 뒤로가기
             </button>
             <button
               onClick={handleDeleteProject}
