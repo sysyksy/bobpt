@@ -7,7 +7,7 @@ const API_BASE_URL = import.meta.env.DEV
 
 // ========== 개발 모드 설정 ==========
 // 로그인 비활성화 (개발 단계) - 필요할 때 false로 변경하면 실제 로그인 활성화
-const DEV_MODE_SKIP_AUTH = false;
+const DEV_MODE_SKIP_AUTH = true;
 
 // ========== JWT 토큰 관리 ==========
 const TOKEN_KEY = 'bobpt_auth_token';
