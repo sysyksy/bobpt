@@ -24,6 +24,7 @@ from auth import (
     TokenData
 )
 from chapter_agent import generate_youtube_chapters
+from thumbnail_agent import generate_thumbnails_from_project
 
 # .env 파일 로드
 load_dotenv()
@@ -1412,6 +1413,13 @@ class VideoEditRequest(BaseModel):
 class QuickShortRequest(BaseModel):
     video_genre: Optional[str] = None
 
+class ThumbnailGenerateRequest(BaseModel):
+    num_thumbnails: int = 3
+
+class ThumbnailRegenerateRequest(BaseModel):
+    frame_index: int
+    text: str
+
 # Video Pipeline Manager 초기화 (lazy loading)
 video_pipeline_manager = None
 
@@ -1727,4 +1735,346 @@ async def create_quick_short(
 
     except Exception as e:
         print(f"[ERROR] Failed to start quick short: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Thumbnail Generation API ---
+
+@app.post("/api/projects/{project_id}/thumbnails/generate")
+async def generate_thumbnails(
+    project_id: str,
+    request: ThumbnailGenerateRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    AI 썸네일 생성 (베스트 프레임 + GPT-4o-mini 텍스트)
+
+    Request:
+        {
+            "num_thumbnails": 3
+        }
+
+    Returns:
+        {
+            "project_id": "uuid",
+            "status": "processing",
+            "message": "Thumbnail generation started"
+        }
+    """
+    if db is None or storage_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Firestore/GCS not configured."
+        )
+
+    try:
+        # 프로젝트 데이터 조회
+        doc_ref = db.collection("projects").document(project_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        data = doc.to_dict()
+        full_text = data.get("full_text", "")
+        gcs_file_name = data.get("gcsFileName")
+
+        if not full_text:
+            raise HTTPException(
+                status_code=400,
+                detail="No transcript available. Please complete STT first."
+            )
+
+        if not gcs_file_name:
+            raise HTTPException(
+                status_code=400,
+                detail="No video file found in project"
+            )
+
+        print(f"[INFO] Thumbnail generation started: {project_id}")
+        print(f"       Thumbnails to generate: {request.num_thumbnails}")
+
+        # 상태 업데이트
+        doc_ref.update({
+            "thumbnail_status": "processing"
+        })
+
+        # 백그라운드 작업
+        async def generate_thumbnails_task():
+            try:
+                import tempfile
+                from pathlib import Path
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # 비디오 다운로드
+                    temp_video_path = Path(temp_dir) / gcs_file_name
+                    bucket = storage_client.bucket(BUCKET_NAME)
+                    blob = bucket.blob(gcs_file_name)
+                    blob.download_to_filename(str(temp_video_path))
+
+                    print(f"[INFO] Video downloaded for thumbnail generation: {temp_video_path}")
+
+                    # 썸네일 생성
+                    thumbnail_output_dir = Path(temp_dir) / "thumbnails"
+                    thumbnails = generate_thumbnails_from_project(
+                        video_path=str(temp_video_path),
+                        transcript=full_text,
+                        output_dir=str(thumbnail_output_dir)
+                    )
+
+                    if not thumbnails:
+                        raise Exception("Failed to generate thumbnails")
+
+                    # GCS에 업로드
+                    uploaded_thumbnails = []
+
+                    for i, thumbnail in enumerate(thumbnails):
+                        # 썸네일 업로드
+                        thumbnail_blob_name = f"thumbnails/{project_id}_thumbnail_{i+1}.jpg"
+                        thumbnail_blob = bucket.blob(thumbnail_blob_name)
+                        thumbnail_blob.upload_from_filename(thumbnail["thumbnail_path"])
+
+                        # 원본 프레임도 업로드 (텍스트 재생성용)
+                        frame_blob_name = f"thumbnails/{project_id}_frame_{i+1}.jpg"
+                        frame_blob = bucket.blob(frame_blob_name)
+                        frame_blob.upload_from_filename(thumbnail["frame_path"])
+
+                        # 읽기 URL 생성 (1시간 유효)
+                        thumbnail_url = thumbnail_blob.generate_signed_url(
+                            version="v4",
+                            expiration=timedelta(hours=1),
+                            method="GET"
+                        )
+
+                        frame_url = frame_blob.generate_signed_url(
+                            version="v4",
+                            expiration=timedelta(hours=1),
+                            method="GET"
+                        )
+
+                        uploaded_thumbnails.append({
+                            "thumbnail_url": thumbnail_url,
+                            "frame_url": frame_url,
+                            "thumbnail_gcs_path": f"gs://{BUCKET_NAME}/{thumbnail_blob_name}",
+                            "frame_gcs_path": f"gs://{BUCKET_NAME}/{frame_blob_name}",
+                            "text": thumbnail["text"],
+                            "timestamp": thumbnail["timestamp"],
+                            "scores": thumbnail["scores"]
+                        })
+
+                    # Firestore 업데이트
+                    doc_ref.update({
+                        "thumbnail_status": "completed",
+                        "thumbnails": uploaded_thumbnails,
+                        "thumbnails_generated_at": firestore.SERVER_TIMESTAMP
+                    })
+
+                    print(f"[OK] Thumbnail generation completed: {project_id}")
+                    print(f"     Generated {len(uploaded_thumbnails)} thumbnails")
+
+            except Exception as e:
+                print(f"[ERROR] Thumbnail generation failed: {project_id}")
+                print(f"        Error: {str(e)}")
+
+                doc_ref.update({
+                    "thumbnail_status": "failed",
+                    "thumbnail_error": str(e)
+                })
+
+        # 백그라운드 태스크 추가
+        background_tasks.add_task(generate_thumbnails_task)
+
+        return {
+            "project_id": project_id,
+            "status": "processing",
+            "message": "Thumbnail generation started in background. Use /api/projects/{project_id}/thumbnails to check results."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to start thumbnail generation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects/{project_id}/thumbnails")
+def get_thumbnails(project_id: str):
+    """
+    생성된 썸네일 조회
+
+    Returns:
+        {
+            "project_id": "uuid",
+            "status": "completed" | "processing" | "failed",
+            "thumbnails": [
+                {
+                    "thumbnail_url": "...",
+                    "frame_url": "...",
+                    "text": "...",
+                    "timestamp": 12.5,
+                    "scores": {...}
+                },
+                ...
+            ]
+        }
+    """
+    if db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Firestore not configured."
+        )
+
+    try:
+        doc_ref = db.collection("projects").document(project_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        data = doc.to_dict()
+        thumbnail_status = data.get("thumbnail_status", "not_started")
+        thumbnails = data.get("thumbnails", [])
+
+        # URL 재생성 (만료된 경우)
+        if thumbnail_status == "completed" and thumbnails:
+            for thumbnail in thumbnails:
+                gcs_path = thumbnail.get("thumbnail_gcs_path", "")
+                frame_gcs_path = thumbnail.get("frame_gcs_path", "")
+
+                if gcs_path.startswith("gs://"):
+                    blob_name = "/".join(gcs_path.split("/")[3:])
+                    bucket = storage_client.bucket(BUCKET_NAME)
+                    blob = bucket.blob(blob_name)
+                    thumbnail["thumbnail_url"] = blob.generate_signed_url(
+                        version="v4",
+                        expiration=timedelta(hours=1),
+                        method="GET"
+                    )
+
+                if frame_gcs_path.startswith("gs://"):
+                    blob_name = "/".join(frame_gcs_path.split("/")[3:])
+                    bucket = storage_client.bucket(BUCKET_NAME)
+                    blob = bucket.blob(blob_name)
+                    thumbnail["frame_url"] = blob.generate_signed_url(
+                        version="v4",
+                        expiration=timedelta(hours=1),
+                        method="GET"
+                    )
+
+        return {
+            "project_id": project_id,
+            "status": thumbnail_status,
+            "thumbnails": thumbnails,
+            "generated_at": data.get("thumbnails_generated_at"),
+            "error": data.get("thumbnail_error") if thumbnail_status == "failed" else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to get thumbnails: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/projects/{project_id}/thumbnails/regenerate-text")
+async def regenerate_thumbnail_text(
+    project_id: str,
+    thumbnail_index: int,
+    new_text: str = Body(..., embed=True),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    썸네일 텍스트 재생성 (사용자 수정)
+
+    Request:
+        {
+            "new_text": "수정된 텍스트"
+        }
+
+    Returns:
+        {
+            "thumbnail_url": "...",
+            "text": "..."
+        }
+    """
+    if db is None or storage_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Firestore/GCS not configured."
+        )
+
+    try:
+        # 프로젝트 데이터 조회
+        doc_ref = db.collection("projects").document(project_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        data = doc.to_dict()
+        thumbnails = data.get("thumbnails", [])
+
+        if thumbnail_index < 0 or thumbnail_index >= len(thumbnails):
+            raise HTTPException(status_code=400, detail="Invalid thumbnail index")
+
+        thumbnail = thumbnails[thumbnail_index]
+        frame_gcs_path = thumbnail.get("frame_gcs_path", "")
+
+        if not frame_gcs_path:
+            raise HTTPException(status_code=400, detail="Frame not found")
+
+        print(f"[INFO] Regenerating thumbnail with new text: {new_text}")
+
+        # 원본 프레임 다운로드
+        import tempfile
+        from pathlib import Path
+        from thumbnail_agent import ThumbnailComposer
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # 프레임 다운로드
+            frame_blob_name = "/".join(frame_gcs_path.split("/")[3:])
+            bucket = storage_client.bucket(BUCKET_NAME)
+            frame_blob = bucket.blob(frame_blob_name)
+
+            temp_frame_path = Path(temp_dir) / "frame.jpg"
+            frame_blob.download_to_filename(str(temp_frame_path))
+
+            # 새 텍스트로 썸네일 재생성
+            composer = ThumbnailComposer()
+            temp_thumbnail_path = Path(temp_dir) / "thumbnail.jpg"
+            composer.compose_thumbnail(
+                str(temp_frame_path),
+                new_text,
+                str(temp_thumbnail_path)
+            )
+
+            # GCS에 업로드 (기존 파일 덮어쓰기)
+            thumbnail_blob_name = "/".join(thumbnail["thumbnail_gcs_path"].split("/")[3:])
+            thumbnail_blob = bucket.blob(thumbnail_blob_name)
+            thumbnail_blob.upload_from_filename(str(temp_thumbnail_path))
+
+            # 새 URL 생성
+            new_url = thumbnail_blob.generate_signed_url(
+                version="v4",
+                expiration=timedelta(hours=1),
+                method="GET"
+            )
+
+            # Firestore 업데이트
+            thumbnails[thumbnail_index]["text"] = new_text
+            thumbnails[thumbnail_index]["thumbnail_url"] = new_url
+
+            doc_ref.update({
+                "thumbnails": thumbnails
+            })
+
+            print(f"[OK] Thumbnail text regenerated: {new_text}")
+
+            return {
+                "thumbnail_url": new_url,
+                "text": new_text,
+                "message": "Thumbnail updated successfully"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to regenerate thumbnail: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

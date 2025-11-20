@@ -434,3 +434,45 @@ export const getExportFormats = async (projectId: string) => {
   }
 };
 
+// ========== 썸네일 생성 ==========
+
+export const generateThumbnails = async (projectId: string, numThumbnails: number = 3) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/projects/${projectId}/thumbnails/generate`, {
+      num_thumbnails: numThumbnails
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error("썸네일 생성 실패:", error);
+    throw error;
+  }
+};
+
+export const getThumbnails = async (projectId: string) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/projects/${projectId}/thumbnails`);
+    return response.data;
+  } catch (error: any) {
+    console.error("썸네일 조회 실패:", error);
+    throw error;
+  }
+};
+
+export const regenerateThumbnailText = async (
+  projectId: string,
+  thumbnailIndex: number,
+  newText: string
+) => {
+  try {
+    const response = await axios.post(
+      `${API_BASE_URL}/projects/${projectId}/thumbnails/regenerate-text`,
+      { new_text: newText },
+      { params: { thumbnail_index: thumbnailIndex } }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error("썸네일 텍스트 재생성 실패:", error);
+    throw error;
+  }
+};
+
