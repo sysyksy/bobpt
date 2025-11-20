@@ -23,6 +23,7 @@ from auth import (
     verify_password,
     TokenData
 )
+from chapter_agent import generate_youtube_chapters
 
 # .env 파일 로드
 load_dotenv()
@@ -595,6 +596,144 @@ def update_transcript(project_id: str, data: TranscriptUpdateRequest):
         raise
     except Exception as e:
         print(f"[ERROR] Failed to update transcript: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/projects/{project_id}/chapters")
+def generate_chapters(project_id: str):
+    """
+    Generate YouTube-style chapters for a project using GPT-4o-mini
+
+    Returns:
+        {
+            "projectId": "uuid",
+            "chapters": "00:00 Intro\n02:15 Main Topic\n...",
+            "status": "completed"
+        }
+    """
+    if db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Firestore not configured."
+        )
+
+    try:
+        # Get project data from Firestore
+        doc_ref = db.collection("projects").document(project_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        data = doc.to_dict()
+        transcript = data.get("transcript", [])
+
+        if not transcript or len(transcript) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No transcript available. Please complete STT first."
+            )
+
+        # Convert transcript format
+        # Firestore format: [{"start_time": 0.0, "end_time": 5.2, "word": "..."}]
+        # Chapter agent format: [{"start": 0.0, "end": 5.2, "text": "..."}]
+        transcript_segments = []
+        for item in transcript:
+            # Handle both old and new formats
+            if "start" in item and "end" in item:
+                transcript_segments.append({
+                    "start": item.get("start", 0),
+                    "end": item.get("end", 0),
+                    "text": item.get("text", "")
+                })
+            elif "start_time" in item:
+                transcript_segments.append({
+                    "start": item.get("start_time", 0),
+                    "end": item.get("end_time", 0),
+                    "text": item.get("word", "")
+                })
+
+        print(f"[INFO] Generating chapters for project {project_id}")
+        print(f"       Segments: {len(transcript_segments)}")
+
+        # Generate chapters using GPT-4o-mini
+        chapters = generate_youtube_chapters(
+            transcript_segments=transcript_segments,
+            target_chapters=6,
+            model="gpt-4o-mini"
+        )
+
+        if not chapters:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate chapters. Please check OpenAI API key."
+            )
+
+        # Store chapters in Firestore
+        doc_ref.update({
+            "chapters": chapters,
+            "chapters_updated_at": firestore.SERVER_TIMESTAMP
+        })
+
+        print(f"[OK] Chapters generated for project {project_id}")
+
+        return {
+            "projectId": project_id,
+            "chapters": chapters,
+            "status": "completed",
+            "message": "Chapters generated successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to generate chapters: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/projects/{project_id}/chapters")
+def get_chapters(project_id: str):
+    """
+    Get previously generated chapters for a project
+
+    Returns:
+        {
+            "projectId": "uuid",
+            "chapters": "00:00 Intro\n02:15 Main Topic\n...",
+            "chapters_updated_at": "2023-01-01T00:00:00"
+        }
+    """
+    if db is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Firestore not configured."
+        )
+
+    try:
+        doc_ref = db.collection("projects").document(project_id)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        data = doc.to_dict()
+        chapters = data.get("chapters")
+
+        if not chapters:
+            return {
+                "projectId": project_id,
+                "chapters": None,
+                "message": "No chapters available. Use POST /api/projects/{project_id}/chapters to generate."
+            }
+
+        return {
+            "projectId": project_id,
+            "chapters": chapters,
+            "chapters_updated_at": data.get("chapters_updated_at")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to get chapters: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/generate-read-url/{file_name}")
