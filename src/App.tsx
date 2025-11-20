@@ -23,6 +23,8 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadMode, setUploadMode] = useState<'file' | 'youtube'>('file')
+  const [youtubeUrl, setYoutubeUrl] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [processingProgress, setProcessingProgress] = useState(0)
@@ -666,145 +668,258 @@ function App() {
         </div>
       )}
 
-      {/* Upload View */}
+      {/* Upload View - BOBPT Hub Design */}
       {isLoggedIn && currentView === 'upload' && (
-        <div style={{
-          border: '1px solid #ddd',
-          borderRadius: '8px',
-          padding: '20px',
-          backgroundColor: '#f9f9f9'
-        }}>
-          <h2>비디오 업로드</h2>
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{
-              display: 'block',
-              padding: '40px',
-              border: '2px dashed #ccc',
-              borderRadius: '8px',
-              textAlign: 'center',
-              cursor: 'pointer',
-              backgroundColor: 'white'
-            }}>
-              <input
-                type="file"
-                accept="video/*"
-                onChange={handleFileSelect}
-                disabled={uploading}
-                style={{ display: 'none' }}
-              />
-              {selectedFile ? (
-                <div>
-                  <div style={{ fontSize: '24px', marginBottom: '10px' }}>📹</div>
-                  <div style={{ fontWeight: 'bold' }}>{selectedFile.name}</div>
-                  <div style={{ fontSize: '14px', color: '#666' }}>
-                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: '48px', marginBottom: '10px' }}>📁</div>
-                  <div>클릭하여 비디오 파일 선택</div>
-                  <div style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>
-                    MP4, AVI, MOV 등 지원
-                  </div>
-                </div>
-              )}
-            </label>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              onClick={handleUpload}
-              disabled={!selectedFile || uploading}
-              style={{
-                flex: 1,
-                padding: '12px',
-                backgroundColor: selectedFile && !uploading ? '#28a745' : '#ccc',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '16px',
-                cursor: selectedFile && !uploading ? 'pointer' : 'not-allowed'
-              }}
-            >
-              {uploading ? '업로드 중...' : '업로드 시작'}
-            </button>
-            <button
-              onClick={goBack}
-              disabled={uploading}
-              style={{
-                padding: '12px 24px',
-                backgroundColor: '#6c757d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '16px',
-                cursor: uploading ? 'not-allowed' : 'pointer'
-              }}
-            >
-              취소
-            </button>
-          </div>
-
-          {/* Upload Progress Bar */}
-          {uploading && uploadProgress > 0 && (
-            <div style={{ marginTop: '20px' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginBottom: '5px',
-                fontSize: '14px',
-                color: '#666'
-              }}>
-                <span>파일 업로드</span>
-                <span>{uploadProgress}%</span>
-              </div>
-              <div style={{
-                width: '100%',
-                height: '24px',
-                backgroundColor: '#e9ecef',
-                borderRadius: '12px',
-                overflow: 'hidden',
-                border: '1px solid #dee2e6'
-              }}>
-                <div style={{
-                  width: `${uploadProgress}%`,
-                  height: '100%',
-                  backgroundColor: uploadProgress === 100 ? '#28a745' : '#007bff',
-                  transition: 'width 0.3s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontSize: '12px',
-                  fontWeight: 'bold'
-                }}>
-                  {uploadProgress > 10 && `${uploadProgress}%`}
-                </div>
-              </div>
+        <div className="min-h-screen bg-[#0a0a0a]">
+          {/* Header */}
+          <header className="px-8 py-6 border-b border-gray-800">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold gradient-text">새 프로젝트 업로드</h1>
+              <button onClick={goBack} className="btn-ghost">
+                ← 뒤로가기
+              </button>
             </div>
-          )}
+          </header>
 
-          {/* Processing Progress Bar */}
-          {processingProgress > 0 && (
-            <div style={{ marginTop: '20px' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginBottom: '5px',
-                fontSize: '14px',
-                color: '#666'
-              }}>
-                <span>STT 처리 중</span>
-                <span>{processingProgress}%</span>
+          {/* Main Content */}
+          <main className="p-8 max-w-4xl mx-auto">
+            {/* Upload Mode Selector */}
+            <div className="flex gap-4 mb-8 justify-center">
+              <button
+                onClick={() => setUploadMode('file')}
+                className={`px-8 py-3 rounded-lg font-medium transition-all ${
+                  uploadMode === 'file'
+                    ? 'bg-blue-500 text-white shadow-lg'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                disabled={uploading}
+              >
+                💾 비디오 파일 업로드
+              </button>
+              <button
+                onClick={() => setUploadMode('youtube')}
+                className={`px-8 py-3 rounded-lg font-medium transition-all ${
+                  uploadMode === 'youtube'
+                    ? 'bg-blue-500 text-white shadow-lg'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                disabled={uploading}
+              >
+                🔗 YouTube 링크
+              </button>
+            </div>
+
+            {/* File Upload Mode */}
+            {uploadMode === 'file' && (
+              <div className="mb-8">
+                <label className={`
+                  block p-12 border-2 border-dashed rounded-lg text-center cursor-pointer transition-all
+                  ${selectedFile
+                    ? 'border-green-500 bg-green-500/10'
+                    : 'border-gray-600 bg-gray-800/50 hover:border-blue-500 hover:bg-blue-500/10'
+                  }
+                  ${uploading ? 'opacity-50 cursor-not-allowed' : ''}
+                `}>
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={handleFileSelect}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+                  {selectedFile ? (
+                    <div className="animate-scale-in">
+                      <div className="text-6xl mb-4">✅</div>
+                      <div className="text-xl font-bold text-white mb-2">{selectedFile.name}</div>
+                      <div className="text-gray-400">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                      {!uploading && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            setSelectedFile(null)
+                          }}
+                          className="mt-4 text-red-400 hover:text-red-300 text-sm"
+                        >
+                          파일 제거
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-6xl mb-4">📁</div>
+                      <div className="text-xl text-gray-300 mb-2">
+                        클릭하여 비디오 파일 선택
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        MP4, AVI, MOV, MKV 등 지원 • 최대 500MB
+                      </div>
+                    </div>
+                  )}
+                </label>
               </div>
-              <div style={{
-                width: '100%',
-                height: '24px',
-                backgroundColor: '#e9ecef',
-                borderRadius: '12px',
-                overflow: 'hidden',
-                border: '1px solid #dee2e6'
+            )}
+
+            {/* YouTube URL Mode */}
+            {uploadMode === 'youtube' && (
+              <div className="mb-8">
+                <div className="card p-8">
+                  <div className="text-center mb-6">
+                    <div className="text-6xl mb-4">🎬</div>
+                    <h3 className="text-xl font-bold text-white mb-2">YouTube 영상 분석</h3>
+                    <p className="text-gray-400">YouTube URL을 입력하면 자동으로 다운로드하여 처리합니다</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-400 mb-2">
+                        YouTube URL
+                      </label>
+                      <input
+                        type="text"
+                        value={youtubeUrl}
+                        onChange={(e) => setYoutubeUrl(e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        disabled={uploading}
+                        className="input w-full"
+                      />
+                      <p className="text-xs text-gray-500 mt-2">
+                        💡 팁: YouTube 영상 페이지의 전체 URL을 복사하여 붙여넣으세요
+                      </p>
+                    </div>
+
+                    {youtubeUrl && (
+                      <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 animate-fade-in">
+                        <div className="flex items-start gap-3">
+                          <span className="text-2xl">✅</span>
+                          <div className="flex-1">
+                            <div className="font-medium text-green-400 mb-1">URL이 입력되었습니다</div>
+                            <div className="text-sm text-gray-400 break-all">{youtubeUrl}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={handleUpload}
+                disabled={
+                  uploading ||
+                  (uploadMode === 'file' && !selectedFile) ||
+                  (uploadMode === 'youtube' && !youtubeUrl.trim())
+                }
+                className={`flex-1 py-4 rounded-lg font-medium transition-all ${
+                  (uploadMode === 'file' && selectedFile) || (uploadMode === 'youtube' && youtubeUrl.trim())
+                    ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg hover:shadow-xl'
+                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                {uploading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="spinner"></span>
+                    처리 중...
+                  </span>
+                ) : (
+                  `🚀 ${uploadMode === 'youtube' ? 'YouTube 다운로드 및 분석 시작' : '업로드 및 분석 시작'}`
+                )}
+              </button>
+              <button
+                onClick={goBack}
+                disabled={uploading}
+                className="btn-secondary px-8"
+              >
+                취소
+              </button>
+            </div>
+
+            {/* Upload Progress Bar */}
+            {uploading && uploadProgress > 0 && (
+              <div className="mt-8 animate-fade-in">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium text-gray-300">
+                    {uploadMode === 'youtube' ? 'YouTube 다운로드 중' : '파일 업로드 중'}
+                  </span>
+                  <span className="text-sm font-bold text-blue-400">{uploadProgress}%</span>
+                </div>
+                <div className="w-full h-6 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                  <div
+                    className={`h-full progress-bar transition-all duration-300 ease-out flex items-center justify-center ${
+                      uploadProgress === 100 ? 'bg-green-500' : ''
+                    }`}
+                    style={{ width: `${uploadProgress}%` }}
+                  >
+                    {uploadProgress > 10 && (
+                      <span className="text-xs font-bold text-white">{uploadProgress}%</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Processing Progress Bar */}
+            {processingProgress > 0 && (
+              <div className="mt-6 animate-fade-in">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium text-gray-300">
+                    🎤 STT 처리 중 (Whisper AI)
+                  </span>
+                  <span className="text-sm font-bold text-purple-400">{processingProgress}%</span>
+                </div>
+                <div className="w-full h-6 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                  <div
+                    className="h-full progress-bar transition-all duration-300 ease-out flex items-center justify-center"
+                    style={{ width: `${processingProgress}%` }}
+                  >
+                    {processingProgress > 10 && (
+                      <span className="text-xs font-bold text-white">{processingProgress}%</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Status Message */}
+            {message && (
+              <div className={`mt-6 p-4 rounded-lg animate-fade-in ${
+                message.includes('✅') || message.includes('완료')
+                  ? 'bg-green-500/10 border border-green-500/30 text-green-400'
+                  : message.includes('❌') || message.includes('실패')
+                  ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                  : 'bg-blue-500/10 border border-blue-500/30 text-blue-400'
+              }`}>
+                {message}
+              </div>
+            )}
+          </main>
+        </div>
+      )}
+
+      {/* Keep old progress bars for other views temporarily */}
+      {currentView !== 'upload' && processingProgress > 0 && (
+        <div style={{ marginTop: '20px' }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginBottom: '5px',
+            fontSize: '14px',
+            color: '#666'
+          }}>
+            <span>STT 처리 중</span>
+            <span>{processingProgress}%</span>
+          </div>
+          <div style={{
+            width: '100%',
+            height: '24px',
+            backgroundColor: '#e9ecef',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            border: '1px solid #dee2e6'
               }}>
                 <div style={{
                   width: `${processingProgress}%`,
@@ -823,8 +938,6 @@ function App() {
               </div>
             </div>
           )}
-        </div>
-      )}
 
       {/* Editor View */}
       {isLoggedIn && currentView === 'editor' && selectedProject && (
