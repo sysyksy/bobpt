@@ -1,33 +1,33 @@
-# 빌드 스테이지
-FROM node:18-alpine AS builder
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# 패키지 설치
-COPY package*.json ./
-RUN npm ci --only=production
+# 시스템 의존성 설치
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-kor \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# 런타임 스테이지
-FROM node:18-alpine
+# Python 의존성 복사 및 설치
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 환경 변수
-ENV NODE_ENV=production
+# 앱 코드 복사
+COPY . .
+
+# 로그 디렉토리 생성
+RUN mkdir -p logs
+
+# 포트 설정 (Cloud Run이 자동으로 설정하는 PORT 환경 변수 사용)
 ENV PORT=8080
-
-WORKDIR /app
-
-# 빌드 스테이지에서 node_modules 복사
-COPY --from=builder /app/node_modules ./node_modules
-
-# 소스 코드 복사
-COPY server.js .
-
-# 헬스 체크
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:8080/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
-
-# 포트 노출
 EXPOSE 8080
 
-# 서버 실행
-CMD ["node", "server.js"]
+# 실행 (Cloud Run의 PORT 환경 변수 사용)
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1

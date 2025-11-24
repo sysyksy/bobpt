@@ -25,49 +25,62 @@ from auth import (
 )
 from chapter_agent import generate_youtube_chapters
 from thumbnail_agent import generate_thumbnails_from_project
+from ocr_spellcheck import OCRSpellCheckPipeline, SpellChecker
+
+# 새로운 모듈 임포트
+from config import setup_logging, get_logger, settings
+from utils import ErrorHandler
+from utils.middleware import DebugMiddleware
+from models import TranscriptSegment, Transcript
 
 # .env 파일 로드
 load_dotenv()
 
+# 로깅 설정 (먼저 초기화)
+setup_logging()
+logger = get_logger()
+
+# Google Cloud 인증 설정 (자동 감지 및 설정)
+# main.py와 같은 디렉토리에 있는 service-account-key.json 자동 탐지
+credentials_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'service-account-key.json')
+if os.path.exists(credentials_path):
+    # 파일이 존재하면 환경 변수 설정 (기존 값 덮어쓰기)
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+    logger.info(f"Google Cloud credentials set to: {credentials_path}")
+else:
+    logger.warning(f"Google Cloud credentials file not found at: {credentials_path}")
+    logger.info("Google Cloud features will be disabled")
+
 app = FastAPI()
 
 # --- CORS 설정 ---
-origins = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicit methods only
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "Accept",
-        "Origin",
-        "X-Requested-With",
-    ],  # Only allow specific headers
+    allow_origins=settings.cors_origins,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_allow_methods,
+    allow_headers=settings.cors_allow_headers,
     max_age=600,  # Cache preflight requests for 10 minutes
 )
+
+# --- 디버깅 미들웨어 추가 ---
+app.add_middleware(DebugMiddleware)
 
 # --- 클라이언트 초기화 ---
 try:
     storage_client = storage.Client()
     db = firestore.Client()
     translate_client = TranslationServiceClient()
-    print("[OK] Google Cloud clients initialized successfully")
+    logger.info("Google Cloud clients initialized successfully")
 except Exception as e:
-    print(f"[WARN] Google Cloud client initialization failed: {str(e)}")
-    print("[INFO] Running in dev mode - GCS/Firestore/Translation features disabled")
+    logger.warning(f"Google Cloud client initialization failed: {str(e)}")
+    logger.info("Running in dev mode - GCS/Firestore/Translation features disabled")
     storage_client = None
     db = None
     translate_client = None
 
 # --- 설정 ---
-BUCKET_NAME = "bob-sto"
+BUCKET_NAME = settings.gcp_bucket_name
 
 # --- Pydantic Models ---
 
@@ -145,9 +158,9 @@ def get_youtube_pipeline():
                 openai_api_key=openai_api_key,
                 firestore_client=db
             )
-            print("[OK] YouTubePipeline initialized")
+            logger.info("YouTubePipeline initialized")
         except Exception as e:
-            print(f"[ERROR] YouTubePipeline initialization failed: {str(e)}")
+            logger.error(f"YouTubePipeline initialization failed: {str(e)}")
             raise
 
     return youtube_pipeline
@@ -214,8 +227,11 @@ async def register(request: UserRegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Registration failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Registration failed")
+        ErrorHandler.handle_exception(
+            e,
+            context="register",
+            user_message="Registration failed"
+        )
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 async def login(request: UserLoginRequest):
@@ -268,8 +284,11 @@ async def login(request: UserLoginRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Login failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Login failed")
+        ErrorHandler.handle_exception(
+            e,
+            context="login",
+            user_message="Login failed"
+        )
 
 @app.get("/api/auth/me", response_model=UserResponse)
 async def get_current_user_info(current_user: TokenData = Depends(get_current_user)):
@@ -304,8 +323,11 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get user info: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to get user information")
+        ErrorHandler.handle_exception(
+            e,
+            context="get_current_user_info",
+            user_message="Failed to get user information"
+        )
 
 # --- Project Endpoints ---
 # NOTE: Add authentication to protect these endpoints by adding:
@@ -359,7 +381,7 @@ def init_project(request: ProjectInitRequest):
             content_type="video/mp4",
         )
 
-        print(f"[OK] Project initialized: {project_id}")
+        logger.info(f"Project initialized: {project_id}")
 
         return {
             "projectId": project_id,
@@ -370,8 +392,11 @@ def init_project(request: ProjectInitRequest):
         }
 
     except Exception as e:
-        print(f"[ERROR] Failed to initialize project: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="init_project",
+            user_message="Failed to initialize project"
+        )
 
 @app.get("/api/projects")
 def get_projects_list():
@@ -412,10 +437,12 @@ def get_projects_list():
         return {"projects": projects_list}
 
     except Exception as e:
-        print(f"[ERROR] Failed to get projects: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_projects_list",
+            user_message="Failed to get projects",
+            log_stacktrace=True
+        )
 
 @app.get("/api/projects/{project_id}")
 def get_project_data(project_id: str):
@@ -449,8 +476,11 @@ def get_project_data(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get project: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_project_data",
+            user_message="Failed to get project"
+        )
 
 @app.get("/api/project-status/{project_id}")
 def get_project_status(project_id: str):
@@ -485,8 +515,11 @@ def get_project_status(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get project status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_project_status",
+            user_message="Failed to get project status"
+        )
 
 @app.get("/api/projects/{project_id}/transcript")
 def get_transcript(project_id: str):
@@ -550,8 +583,11 @@ def get_transcript(project_id: str):
         }
 
     except Exception as e:
-        print(f"[ERROR] Failed to get transcript: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_transcript",
+            user_message="Failed to get transcript"
+        )
 
 @app.post("/api/projects/{project_id}/transcript/update")
 def update_transcript(project_id: str, data: TranscriptUpdateRequest):
@@ -585,7 +621,7 @@ def update_transcript(project_id: str, data: TranscriptUpdateRequest):
             "last_updated": firestore.SERVER_TIMESTAMP,
         })
 
-        print(f"[OK] Transcript updated for project {project_id}")
+        logger.info(f"Transcript updated for project {project_id}")
 
         return {
             "projectId": project_id,
@@ -596,8 +632,11 @@ def update_transcript(project_id: str, data: TranscriptUpdateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to update transcript: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="update_transcript",
+            user_message="Failed to update transcript"
+        )
 
 @app.post("/api/projects/{project_id}/chapters")
 def generate_chapters(project_id: str):
@@ -653,8 +692,7 @@ def generate_chapters(project_id: str):
                     "text": item.get("word", "")
                 })
 
-        print(f"[INFO] Generating chapters for project {project_id}")
-        print(f"       Segments: {len(transcript_segments)}")
+        logger.info(f"Generating chapters for project {project_id} (Segments: {len(transcript_segments)})")
 
         # Generate chapters using GPT-4o-mini
         chapters = generate_youtube_chapters(
@@ -675,7 +713,7 @@ def generate_chapters(project_id: str):
             "chapters_updated_at": firestore.SERVER_TIMESTAMP
         })
 
-        print(f"[OK] Chapters generated for project {project_id}")
+        logger.info(f"Chapters generated for project {project_id}")
 
         return {
             "projectId": project_id,
@@ -687,8 +725,11 @@ def generate_chapters(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to generate chapters: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="generate_chapters",
+            user_message="Failed to generate chapters. Please try again."
+        )
 
 @app.get("/api/projects/{project_id}/chapters")
 def get_chapters(project_id: str):
@@ -734,8 +775,11 @@ def get_chapters(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get chapters: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_chapters",
+            user_message="Failed to get chapters"
+        )
 
 @app.get("/api/generate-read-url/{file_name}")
 def generate_read_url(file_name: str):
@@ -763,8 +807,11 @@ def generate_read_url(file_name: str):
         return {"read_url": url}
 
     except Exception as e:
-        print(f"[ERROR] Failed to generate read URL: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="generate_read_url",
+            user_message="Failed to generate read URL"
+        )
 
 # --- 번역 API ---
 
@@ -815,7 +862,7 @@ def translate_captions(data: TranslationRequest):
                 detail="GOOGLE_CLOUD_PROJECT not configured"
             )
 
-        print(f"[INFO] Translating {len(texts_to_translate)} captions to {target_lang}")
+        logger.info(f"Translating {len(texts_to_translate)} captions to {target_lang}")
 
         parent = f"projects/{project_id}/locations/global"
 
@@ -837,7 +884,7 @@ def translate_captions(data: TranslationRequest):
                 "original": caption.get("text", "")
             })
 
-        print(f"[OK] Translation complete: {len(translated)} captions translated")
+        logger.info(f"Translation complete: {len(translated)} captions translated")
 
         return {
             "projectId": str(uuid.uuid4()),
@@ -850,7 +897,7 @@ def translate_captions(data: TranslationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Translation failed: {str(e)}")
+        logger.error(f"Translation failed: {str(e)}")
         # Fallback
         translated = []
         for caption in captions:
@@ -873,7 +920,7 @@ def translate_captions(data: TranslationRequest):
 # (기존 코드 유지 - OCR 기능은 그대로 사용)
 
 @app.post("/api/ocr-spellcheck/youtube")
-async def ocr_spellcheck_youtube(request: OCRYouTubeRequest):
+async def ocr_spellcheck_youtube(request: OCRYouTubeRequest, background_tasks: BackgroundTasks):
     """
     YouTube 영상 OCR + 맞춤법 검사
     """
@@ -893,14 +940,46 @@ async def ocr_spellcheck_youtube(request: OCRYouTubeRequest):
 
         request_id = str(uuid.uuid4())
 
-        # TODO: OCR 처리 로직 구현
+        # OCR 파이프라인 초기화
+        pipeline = OCRSpellCheckPipeline()
+
+        # 백그라운드 작업으로 OCR 처리
+        async def process_ocr_task():
+            try:
+                result = await pipeline.process_youtube_video(url, interval_seconds=1.0)
+                
+                # 결과를 Firestore에 저장 (선택적)
+                if db:
+                    db.collection("ocr_results").document(request_id).set({
+                        "request_id": request_id,
+                        "url": url,
+                        "status": "completed",
+                        "ocr_text": result.get("ocr_text", ""),
+                        "subtitles": result.get("subtitles", []),
+                        "stats": result.get("stats", {}),
+                        "spell_check": result.get("spell_check", {}),
+                        "created_at": firestore.SERVER_TIMESTAMP,
+                    })
+                logger.info(f"OCR processing completed for request {request_id}")
+            except Exception as e:
+                logger.error(f"OCR processing failed: {str(e)}")
+                if db:
+                    db.collection("ocr_results").document(request_id).set({
+                        "request_id": request_id,
+                        "url": url,
+                        "status": "failed",
+                        "error": str(e),
+                        "created_at": firestore.SERVER_TIMESTAMP,
+                    })
+
+        background_tasks.add_task(process_ocr_task)
 
         return {
             "request_id": request_id,
             "status": "processing",
             "source": "youtube",
             "url": url,
-            "message": "YouTube 영상 분석이 시작되었습니다."
+            "message": "YouTube 영상 분석이 시작되었습니다. 백그라운드에서 처리 중입니다."
         }
 
     except Exception as e:
@@ -923,11 +1002,20 @@ async def ocr_spellcheck_quick_check(request: QuickSpellCheckRequest):
                 content={"error": "텍스트가 필요합니다"}
             )
 
-        # TODO: 맞춤법 검사 로직 구현
+        # 맞춤법 검사 실행
+        spell_checker = SpellChecker()
+        result = spell_checker.check_spelling(text)
+
         return {
             "status": "completed",
             "text_length": len(text),
-            "corrections": []
+            "original_text": result.get("original_text", text),
+            "corrections": {
+                "naver": result.get("naver_corrections", []),
+                "google": result.get("google_corrections", [])
+            },
+            "total_issues": result.get("total_issues", 0),
+            "timestamp": result.get("timestamp")
         }
 
     except Exception as e:
@@ -1045,8 +1133,11 @@ def export_project(project_id: str, request: ExportRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Export failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="export_project",
+            user_message="Export failed"
+        )
 
 @app.get("/api/projects/{project_id}/export/formats")
 def get_export_formats(project_id: str):
@@ -1134,8 +1225,11 @@ def get_translations(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get translations: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_translations",
+            user_message="Failed to get translations"
+        )
 
 @app.get("/api/projects/{project_id}/translations/{language}")
 def get_translation_by_language(project_id: str, language: str):
@@ -1198,8 +1292,11 @@ def get_translation_by_language(project_id: str, language: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get translation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_translation_by_language",
+            user_message="Failed to get translation"
+        )
 
 @app.post("/api/projects/{project_id}/translate")
 def trigger_translation(project_id: str, target_languages: List[str] = Body(...)):
@@ -1244,8 +1341,11 @@ def trigger_translation(project_id: str, target_languages: List[str] = Body(...)
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to trigger translation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="trigger_translation",
+            user_message="Failed to trigger translation"
+        )
 
 # --- YouTube Pipeline API ---
 
@@ -1279,9 +1379,7 @@ async def process_youtube_video(
         # 프로젝트 ID 생성
         project_id = str(uuid.uuid4())
 
-        print(f"[INFO] YouTube processing started: {project_id}")
-        print(f"       URL: {request.url}")
-        print(f"       Target Languages: {request.target_languages}")
+        logger.info(f"YouTube processing started: {project_id} - URL: {request.url} - Languages: {request.target_languages}")
 
         # Firestore에 초기 상태 저장
         if db:
@@ -1299,7 +1397,7 @@ async def process_youtube_video(
         # 백그라운드 작업 함수
         async def process_video_task():
             try:
-                print(f"[INFO] Processing YouTube video: {project_id}")
+                logger.info(f"Processing YouTube video: {project_id}")
 
                 result = await pipeline.process_youtube_url(
                     url=request.url,
@@ -1309,13 +1407,10 @@ async def process_youtube_video(
                     project_id=project_id
                 )
 
-                print(f"[OK] YouTube processing completed: {project_id}")
-                print(f"     Title: {result.get('title', 'N/A')}")
-                print(f"     Languages: {len(result.get('translations', {}))} translations")
+                logger.info(f"YouTube processing completed: {project_id} - Title: {result.get('title', 'N/A')} - {len(result.get('translations', {}))} translations")
 
             except Exception as e:
-                print(f"[ERROR] YouTube processing failed: {project_id}")
-                print(f"        Error: {str(e)}")
+                logger.error(f"YouTube processing failed: {project_id} - Error: {str(e)}")
 
                 # Firestore에 실패 상태 저장
                 if db:
@@ -1343,8 +1438,11 @@ async def process_youtube_video(
             detail=f"YouTube pipeline not available: {str(e)}"
         )
     except Exception as e:
-        print(f"[ERROR] Failed to start YouTube processing: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="process_youtube_video",
+            user_message="Failed to start YouTube processing"
+        )
 
 @app.get("/api/youtube/status/{project_id}")
 def get_youtube_processing_status(project_id: str):
@@ -1399,8 +1497,11 @@ def get_youtube_processing_status(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get YouTube status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_youtube_processing_status",
+            user_message="Failed to get YouTube status"
+        )
 
 # --- Video Editing API ---
 
@@ -1440,9 +1541,9 @@ def get_video_pipeline_manager():
                 openai_api_key=openai_api_key,
                 firestore_client=db
             )
-            print("[OK] VideoPipelineManager initialized")
+            logger.info("VideoPipelineManager initialized")
         except Exception as e:
-            print(f"[ERROR] VideoPipelineManager initialization failed: {str(e)}")
+            logger.error(f"VideoPipelineManager initialization failed: {str(e)}")
             raise
 
     return video_pipeline_manager
@@ -1505,9 +1606,7 @@ async def edit_video(
                 detail="No video file found in project"
             )
 
-        print(f"[INFO] Video editing started: {project_id}")
-        print(f"       Filler Removal: {request.enable_filler_removal}")
-        print(f"       Shorts Generation: {request.enable_shorts_generation}")
+        logger.info(f"Video editing started: {project_id} - Filler: {request.enable_filler_removal}, Shorts: {request.enable_shorts_generation}")
 
         # 상태 업데이트
         doc_ref.update({
@@ -1528,7 +1627,7 @@ async def edit_video(
                     blob = bucket.blob(gcs_file_name)
                     blob.download_to_filename(str(temp_video_path))
 
-                    print(f"[INFO] Video downloaded: {temp_video_path}")
+                    logger.info(f"Video downloaded: {temp_video_path}")
 
                     # Video Pipeline Manager 실행
                     manager = get_video_pipeline_manager()
@@ -1588,11 +1687,10 @@ async def edit_video(
                         "highlights": result.get("highlights", [])
                     })
 
-                    print(f"[OK] Video editing completed: {project_id}")
+                    logger.info(f"Video editing completed: {project_id}")
 
             except Exception as e:
-                print(f"[ERROR] Video editing failed: {project_id}")
-                print(f"        Error: {str(e)}")
+                logger.error(f"Video editing failed: {project_id} - Error: {str(e)}")
 
                 doc_ref.update({
                     "video_editing_status": "failed",
@@ -1616,8 +1714,11 @@ async def edit_video(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to start video editing: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="edit_video",
+            user_message="Failed to start video editing"
+        )
 
 @app.post("/api/projects/{project_id}/quick-short")
 async def create_quick_short(
@@ -1665,7 +1766,7 @@ async def create_quick_short(
                 detail="No transcript available"
             )
 
-        print(f"[INFO] Quick short generation started: {project_id}")
+        logger.info(f"Quick short generation started: {project_id}")
 
         # 백그라운드 작업
         async def quick_short_task():
@@ -1716,10 +1817,10 @@ async def create_quick_short(
                             "quick_short_status": "completed"
                         })
 
-                        print(f"[OK] Quick short completed: {project_id}")
+                        logger.info(f"Quick short completed: {project_id}")
 
             except Exception as e:
-                print(f"[ERROR] Quick short failed: {str(e)}")
+                logger.error(f"Quick short failed: {str(e)}")
                 doc_ref.update({
                     "quick_short_status": "failed",
                     "quick_short_error": str(e)
@@ -1734,8 +1835,11 @@ async def create_quick_short(
         }
 
     except Exception as e:
-        print(f"[ERROR] Failed to start quick short: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="create_quick_short",
+            user_message="Failed to start quick short"
+        )
 
 # --- Thumbnail Generation API ---
 
@@ -1790,8 +1894,7 @@ async def generate_thumbnails(
                 detail="No video file found in project"
             )
 
-        print(f"[INFO] Thumbnail generation started: {project_id}")
-        print(f"       Thumbnails to generate: {request.num_thumbnails}")
+        logger.info(f"Thumbnail generation started: {project_id} - Count: {request.num_thumbnails}")
 
         # 상태 업데이트
         doc_ref.update({
@@ -1811,7 +1914,7 @@ async def generate_thumbnails(
                     blob = bucket.blob(gcs_file_name)
                     blob.download_to_filename(str(temp_video_path))
 
-                    print(f"[INFO] Video downloaded for thumbnail generation: {temp_video_path}")
+                    logger.info(f"Video downloaded for thumbnail generation: {temp_video_path}")
 
                     # 썸네일 생성
                     thumbnail_output_dir = Path(temp_dir) / "thumbnails"
@@ -1868,12 +1971,10 @@ async def generate_thumbnails(
                         "thumbnails_generated_at": firestore.SERVER_TIMESTAMP
                     })
 
-                    print(f"[OK] Thumbnail generation completed: {project_id}")
-                    print(f"     Generated {len(uploaded_thumbnails)} thumbnails")
+                    logger.info(f"Thumbnail generation completed: {project_id} - Generated {len(uploaded_thumbnails)} thumbnails")
 
             except Exception as e:
-                print(f"[ERROR] Thumbnail generation failed: {project_id}")
-                print(f"        Error: {str(e)}")
+                logger.error(f"Thumbnail generation failed: {project_id} - Error: {str(e)}")
 
                 doc_ref.update({
                     "thumbnail_status": "failed",
@@ -1892,8 +1993,11 @@ async def generate_thumbnails(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to start thumbnail generation: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="generate_thumbnails",
+            user_message="Failed to start thumbnail generation"
+        )
 
 @app.get("/api/projects/{project_id}/thumbnails")
 def get_thumbnails(project_id: str):
@@ -1970,8 +2074,11 @@ def get_thumbnails(project_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to get thumbnails: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="get_thumbnails",
+            user_message="Failed to get thumbnails"
+        )
 
 @app.post("/api/projects/{project_id}/thumbnails/regenerate-text")
 async def regenerate_thumbnail_text(
@@ -2020,7 +2127,7 @@ async def regenerate_thumbnail_text(
         if not frame_gcs_path:
             raise HTTPException(status_code=400, detail="Frame not found")
 
-        print(f"[INFO] Regenerating thumbnail with new text: {new_text}")
+        logger.info(f"Regenerating thumbnail with new text: {new_text}")
 
         # 원본 프레임 다운로드
         import tempfile
@@ -2065,7 +2172,7 @@ async def regenerate_thumbnail_text(
                 "thumbnails": thumbnails
             })
 
-            print(f"[OK] Thumbnail text regenerated: {new_text}")
+            logger.info(f"Thumbnail text regenerated: {new_text}")
 
             return {
                 "thumbnail_url": new_url,
@@ -2076,5 +2183,8 @@ async def regenerate_thumbnail_text(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Failed to regenerate thumbnail: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        ErrorHandler.handle_exception(
+            e,
+            context="regenerate_thumbnail_text",
+            user_message="Failed to regenerate thumbnail"
+        )

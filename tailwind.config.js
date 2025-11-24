@@ -29,6 +29,13 @@ module.exports = {
           completed: '#10B981',
           error: '#EF4444',
           pending: '#6B7280'
+        },
+        // Studio Episode Brand Colors
+        episode: {
+          400: '#FF704D',
+          500: '#FF4D22',
+          600: '#E0411B',
+          900: '#1a0a06',
         }
       },
       fontFamily: {

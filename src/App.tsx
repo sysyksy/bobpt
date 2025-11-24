@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { register, login, getProjects, getUploadUrl, getTranscript, deleteProject, translateCaptions, exportProject, updateTranscript, getReadUrl } from './apiClient'
+import { register, login, getProjects, getUploadUrl, getTranscript, deleteProject, translateCaptions, exportProject, updateTranscript, getReadUrl, processYouTubeVideo } from './apiClient'
 
 interface Project {
   projectId: string
@@ -143,6 +143,49 @@ function App() {
   }
 
   const handleUpload = async () => {
+    // YouTube 모드 처리
+    if (uploadMode === 'youtube') {
+      if (!youtubeUrl.trim()) {
+        setMessage('YouTube URL을 입력하세요.')
+        return
+      }
+
+      setUploading(true)
+      setUploadProgress(0)
+      setProcessingProgress(0)
+      setMessage('YouTube 영상 처리 시작...')
+
+      try {
+        // YouTube 처리 API 호출
+        const result = await processYouTubeVideo({
+          url: youtubeUrl,
+          target_languages: ['en'],
+          source_language: 'ko',
+          enable_ocr: false
+        })
+
+        const projectId = result.project_id
+        setMessage(`✅ YouTube 처리 시작! 프로젝트 ID: ${projectId}. 백그라운드에서 처리 중...`)
+
+        // 프로젝트 목록 새로고침
+        await loadProjects()
+
+        // 프로젝트 상태 폴링 시작
+        pollTranscript(projectId)
+
+        setYoutubeUrl('')
+        navigateToView('projects')
+      } catch (error: any) {
+        setMessage(`YouTube 처리 실패: ${error.response?.data?.detail || error.message}`)
+        setUploadProgress(0)
+        setProcessingProgress(0)
+      } finally {
+        setUploading(false)
+      }
+      return
+    }
+
+    // 파일 업로드 모드 처리
     if (!selectedFile) {
       setMessage('파일을 먼저 선택하세요.')
       return

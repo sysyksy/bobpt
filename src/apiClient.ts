@@ -434,6 +434,40 @@ export const getExportFormats = async (projectId: string) => {
   }
 };
 
+// ========== YouTube 처리 API ==========
+
+interface YouTubeProcessRequest {
+  url: string;
+  target_languages?: string[];
+  source_language?: string;
+  enable_ocr?: boolean;
+}
+
+export const processYouTubeVideo = async (request: YouTubeProcessRequest) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/youtube/process`, {
+      url: request.url,
+      target_languages: request.target_languages || ["en"],
+      source_language: request.source_language || "ko",
+      enable_ocr: request.enable_ocr || false,
+    });
+    return response.data;
+  } catch (error: any) {
+    console.error("YouTube 처리 실패:", error);
+    throw error;
+  }
+};
+
+export const getYouTubeStatus = async (projectId: string) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/youtube/status/${projectId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error("YouTube 상태 조회 실패:", error);
+    throw error;
+  }
+};
+
 // ========== 썸네일 생성 ==========
 
 export const generateThumbnails = async (projectId: string, numThumbnails: number = 3) => {
@@ -472,6 +506,48 @@ export const regenerateThumbnailText = async (
     return response.data;
   } catch (error: any) {
     console.error("썸네일 텍스트 재생성 실패:", error);
+    throw error;
+  }
+};
+
+// ========== 비디오 편집 및 쇼츠 생성 ==========
+
+interface VideoEditRequest {
+  enable_filler_removal?: boolean;
+  enable_shorts_generation?: boolean;
+  num_shorts?: number;
+  video_genre?: string;
+}
+
+export const editVideo = async (projectId: string, request: VideoEditRequest) => {
+  try {
+    const response = await axios.post(
+      `${API_BASE_URL}/projects/${projectId}/edit`,
+      {
+        enable_filler_removal: request.enable_filler_removal ?? true,
+        enable_shorts_generation: request.enable_shorts_generation ?? true,
+        num_shorts: request.num_shorts ?? 3,
+        video_genre: request.video_genre
+      }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error("비디오 편집 실패:", error);
+    throw error;
+  }
+};
+
+export const createQuickShort = async (projectId: string, videoGenre?: string) => {
+  try {
+    const response = await axios.post(
+      `${API_BASE_URL}/projects/${projectId}/quick-short`,
+      {
+        video_genre: videoGenre
+      }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error("빠른 쇼츠 생성 실패:", error);
     throw error;
   }
 };

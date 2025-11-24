@@ -610,4 +610,4 @@ class OCRSpellCheckPipeline:
 
 
 # ========== 글로벌 인스턴스 ==========
-pipeline = OCRSpellCheckPipeline()
+# pipeline = OCRSpellCheckPipeline()  # Lazy loading으로 변경 - 필요시 함수 내에서 생성

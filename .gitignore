@@ -215,3 +215,11 @@ dist/
 /backend/venv
 
 
+# 비밀 키 파일 무시
+*.json
+service-account-key.json
+gcp-credentials.json
+.env
+.env.production
+
+

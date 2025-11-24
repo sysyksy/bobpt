@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python main.py:*)",
+      "Bash(timeout:*)",
+      "Bash(mkdir:*)",
+      "Bash(python -m pip install:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m uvicorn:*)",
+      "Bash(curl:*)",
+      "Bash(gcloud config:*)",
+      "Bash(gcloud auth list:*)",
+      "Bash(gcloud services enable:*)",
+      "Bash(gcloud run deploy:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

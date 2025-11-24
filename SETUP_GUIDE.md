@@ -186,7 +186,9 @@ GCS_BUCKET=bob-sto
 GOOGLE_APPLICATION_CREDENTIALS=C:\project-brew\bobpt\gcp-credentials.json
 
 # ========== OpenAI API ==========
-OPENAI_API_KEY=sk-your-actual-openai-api-key-here
+OPENAI_API_KEY=(YOUR_API_KEY)
+
+# JWT Secret (랜덤한 강력한 키로 변경!)
 WHISPER_MODEL=whisper-1
 ENABLE_AUDIO_ENHANCEMENT=true
 
